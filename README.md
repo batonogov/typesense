@@ -1,6 +1,6 @@
 # Typesense with Healthcheck in Docker
 
-This repository provides a Docker image based on Typesense (version 28.0) with an integrated healthcheck.
+This repository provides a Docker image based on Typesense with an integrated healthcheck.
 The healthcheck uses the curl utility to verify the service's health by pinging its endpoint.
 
 ## Project Features
