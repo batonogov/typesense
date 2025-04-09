@@ -46,7 +46,8 @@ test-api:
 	if [ $$COUNTER -eq $$TIMEOUT ]; then \
 		echo "Container did not become healthy in $$TIMEOUT seconds"; \
 		echo "Container logs:"; \
-		docker logs $(CONTAINER_ID) 2>/dev/null || echo "Could not get container logs"; \
+		docker logs $(CONTAINER_ID) 2>/dev/null > /tmp/typesense-test-$(shell date +%s).log || echo "Could not get container logs"; \
+		cat /tmp/typesense-test-*.log; \
 		docker stop $(CONTAINER_ID) 2>/dev/null || true; \
 		exit 1; \
 	fi

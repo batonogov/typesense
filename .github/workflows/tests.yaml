@@ -24,6 +24,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
+      - name: Build Docker image
+        run: |
+          docker build -t typesense:test .
+
       - name: Run API Tests
         run: |
           make test-api
