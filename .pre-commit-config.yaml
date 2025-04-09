@@ -15,6 +15,12 @@ repos:
       - id: no-commit-to-branch
       - id: trailing-whitespace
 
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        types: [shell]
+
   - repo: https://github.com/executablebooks/mdformat
     rev: 0.7.22
     hooks:
@@ -32,3 +38,12 @@ repos:
       - id: markdownlint
         args: [--fix]
         files: \.md$
+
+  - repo: local
+    hooks:
+      - id: make-test
+        name: Run make test
+        entry: make test
+        language: system
+        types: [file]
+        pass_filenames: false
