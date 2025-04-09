@@ -35,6 +35,11 @@ jobs:
           TEST_API_KEY: ${{ secrets.TEST_API_KEY || 'API_KEY_TEST' }}
           TEST_TIMEOUT: 30
 
+      - name: Install wrk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wrk
+
       - name: Run Performance Tests
         run: |
           make test-performance
