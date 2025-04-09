@@ -77,7 +77,6 @@ For major changes, please open an issue first to discuss what you would like to 
 
 This image is compatible with:
 
-- Typesense versions: 0.28.0 and above
 - Docker versions: 28.0.4 and above
 
 ## License
