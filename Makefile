@@ -1,6 +1,6 @@
 # Конфигурация тестов
 TEST_API_KEY ?= API_KEY_TEST
-TEST_TIMEOUT ?= 15
+TEST_TIMEOUT ?= 30
 TEST_CONTAINER_NAME ?= typesense-test-$(shell date +%s)
 
 .PHONY: test test-api test-performance clean
@@ -19,15 +19,25 @@ test-api:
 		--health-interval=1s \
 		--health-timeout=1s \
 		--health-retries=3 \
+		-e TYPESENSE_API_KEY=$(TEST_API_KEY) \
 		typesense:test \
 		--data-dir /tmp \
-		--api-key=$(TEST_API_KEY)))
+		--api-key=$(TEST_API_KEY) \
+		2>&1 || echo "FAILED"))
 
+	@if [ "$(CONTAINER_ID)" = "FAILED" ]; then \
+		echo "Failed to start container"; \
+		exit 1; \
+	fi
+
+	@echo "Container ID: $(CONTAINER_ID)"
 	@echo "Waiting for container to become healthy..."
 	@TIMEOUT=$(TEST_TIMEOUT); \
 	COUNTER=0; \
 	while [ $$COUNTER -lt $$TIMEOUT ]; do \
-		if [ "$$(docker inspect --format='{{.State.Health.Status}}' $(CONTAINER_ID))" = "healthy" ]; then \
+		HEALTH_STATUS=$$(docker inspect --format='{{.State.Health.Status}}' $(CONTAINER_ID) 2>/dev/null || echo "unknown"); \
+		echo "Health status: $$HEALTH_STATUS ($$COUNTER/$$TIMEOUT)"; \
+		if [ "$$HEALTH_STATUS" = "healthy" ]; then \
 			break; \
 		fi; \
 		sleep 1; \
@@ -35,8 +45,9 @@ test-api:
 	done; \
 	if [ $$COUNTER -eq $$TIMEOUT ]; then \
 		echo "Container did not become healthy in $$TIMEOUT seconds"; \
-		docker logs $(CONTAINER_ID); \
-		docker stop $(CONTAINER_ID); \
+		echo "Container logs:"; \
+		docker logs $(CONTAINER_ID) 2>/dev/null || echo "Could not get container logs"; \
+		docker stop $(CONTAINER_ID) 2>/dev/null || true; \
 		exit 1; \
 	fi
 
