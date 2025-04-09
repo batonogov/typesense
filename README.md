@@ -1,5 +1,7 @@
 # Typesense with Healthcheck in Docker
 
+[![Tests](https://github.com/batonogov/typesense/actions/workflows/tests.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/tests.yaml)
+
 This repository provides a Docker image based on Typesense with an integrated healthcheck.
 The healthcheck uses the curl utility to verify the service's health by pinging its endpoint.
 
@@ -23,7 +25,7 @@ The healthcheck uses the curl utility to verify the service's health by pinging 
 Pull the latest image:
 
 ```bash
-docker pull pull ghcr.io/batonogov/typesense:latest
+docker pull ghcr.io/batonogov/typesense:latest
 ```
 
 ### Basic Usage
@@ -31,10 +33,10 @@ docker pull pull ghcr.io/batonogov/typesense:latest
 Run the container:
 
 ```bash
-docker run -d \
+docker run \
   -p 8108:8108 \
   -e TYPESENSE_API_KEY=your-api-key \
-  pull ghcr.io/batonogov/typesense:latest
+  ghcr.io/batonogov/typesense:latest
 ```
 
 ### Configuration
@@ -49,12 +51,12 @@ Available environment variables:
 Example with custom configuration:
 
 ```bash
-docker run -d \
+docker run \
   -p 8108:8108 \
   -e TYPESENSE_API_KEY=your-api-key \
   -e TYPESENSE_DATA_DIR=/custom/data \
   -v /path/to/data:/custom/data \
-  your-dockerhub-username/typesense-healthcheck:latest
+  ghcr.io/batonogov/typesense:latest
 ```
 
 ## Healthcheck Details
