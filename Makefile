@@ -1,4 +1,4 @@
-# Конфигурация тестов
+# Test configuration
 TEST_API_KEY ?= API_KEY_TEST
 TEST_TIMEOUT ?= 30
 TEST_CONTAINER_NAME ?= typesense-test-$(shell date +%s)
@@ -15,10 +15,6 @@ test-api:
 	$(eval CONTAINER_ID := $(shell docker run --rm -d \
 		--name $(TEST_CONTAINER_NAME) \
 		-p 8108:8108 \
-		--health-cmd="curl -f http://localhost:8108/health || exit 1" \
-		--health-interval=1s \
-		--health-timeout=1s \
-		--health-retries=3 \
 		-e TYPESENSE_API_KEY=$(TEST_API_KEY) \
 		typesense:test \
 		--data-dir /tmp \
@@ -34,6 +30,7 @@ test-api:
 	@echo "Waiting for container to become healthy..."
 	@TIMEOUT=$(TEST_TIMEOUT); \
 	COUNTER=0; \
+	sleep 4; \
 	while [ $$COUNTER -lt $$TIMEOUT ]; do \
 		HEALTH_STATUS=$$(docker inspect --format='{{.State.Health.Status}}' $(CONTAINER_ID) 2>/dev/null || echo "unknown"); \
 		echo "Health status: $$HEALTH_STATUS ($$COUNTER/$$TIMEOUT)"; \
