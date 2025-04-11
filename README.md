@@ -79,6 +79,105 @@ This image is compatible with:
 
 - Docker versions: 28.0.4 and above
 
+## Test Suite
+
+## Requirements
+
+To run the tests, you need to install:
+
+- [Task](https://taskfile.dev/) - a modern Make alternative
+- [Docker](https://www.docker.com/)
+
+### Installing Task
+
+On macOS:
+
+```bash
+brew install go-task
+```
+
+## Usage
+
+### Available Commands
+
+- Run all tests:
+
+```bash
+task test
+```
+
+- Build test container:
+
+```bash
+task build-test-container
+```
+
+- Run API tests only:
+
+```bash
+task test-api
+```
+
+- Clean up test containers:
+
+```bash
+task clean
+```
+
+- View list of all available commands:
+
+```bash
+task --list
+```
+
+## Test Parameters
+
+The Taskfile.yaml defines the following variables:
+
+- `TEST_API_KEY`: API key for testing (default: API_KEY_TEST)
+- `TEST_TIMEOUT`: Container readiness timeout (default: 30 seconds)
+- `TEST_CONTAINER_NAME`: Test container name (automatically generated)
+
+### Running with Custom Parameters
+
+```bash
+TEST_API_KEY=my_custom_key TEST_TIMEOUT=60 task test
+```
+
+## Test Structure
+
+- `test-api`: Runs API tests
+  1. Builds Docker container
+  1. Starts container
+  1. Waits for container to become healthy
+  1. Executes API tests
+  1. Runs performance tests
+  1. Stops container
+
+## Troubleshooting
+
+### Port Already in Use
+
+If you get an error that port 8108 is already in use:
+
+1. Check running containers:
+
+```bash
+docker ps
+```
+
+2. Stop the conflicting container:
+
+```bash
+docker stop <CONTAINER_ID>
+```
+
+3. Or use the cleanup command:
+
+```bash
+task clean
+```
+
 ## License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for more details.
