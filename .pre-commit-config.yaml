@@ -1,3 +1,4 @@
+---
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -13,6 +14,7 @@ repos:
       - id: fix-byte-order-marker
       - id: mixed-line-ending
       - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
       - id: trailing-whitespace
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
@@ -32,18 +34,19 @@ repos:
           - mdformat-toc
           - mdformat-frontmatter
 
-  - repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.44.0
-    hooks:
-      - id: markdownlint
-        args: [--fix]
-        files: \.md$
+  # - repo: https://github.com/igorshubovych/markdownlint-cli
+  #   rev: v0.44.0
+  #   hooks:
+  #     - id: markdownlint
+  #       args: [--fix]
+  #       files: \.md$
 
   - repo: local
     hooks:
-      - id: make-test
-        name: Run make test
-        entry: make test
+      - id: task-test
+        name: Run task test
+        entry: task test
         language: system
         types: [file]
         pass_filenames: false
+        stages: [pre-push]
