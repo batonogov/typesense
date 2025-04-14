@@ -1,11 +1,11 @@
-version: '3'
+version: "3"
 
 vars:
   TEST_API_KEY: API_KEY_TEST
   TEST_TIMEOUT: 30
-  TEST_CONTAINER_NAME: typesense-test-{{.TIMESTAMP}}
   TIMESTAMP:
     sh: date +%s
+  TEST_CONTAINER_NAME: typesense-test-{{.TIMESTAMP}}
 
 tasks:
   test:
@@ -45,7 +45,6 @@ tasks:
       - |
         echo "Waiting for container to become healthy..."
         COUNTER=0
-        sleep 4
         while [ $COUNTER -lt {{.TEST_TIMEOUT}} ]; do
           HEALTH_STATUS=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' {{.CONTAINER_ID}} 2>/dev/null || echo "unknown")
           echo "Health status: $HEALTH_STATUS ($COUNTER/{{.TEST_TIMEOUT}})"
