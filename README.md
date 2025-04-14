@@ -1,6 +1,6 @@
 # Typesense with Healthcheck in Docker
 
-[![Tests](https://github.com/batonogov/typesense/actions/workflows/test.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/test.yaml)
+[![Tests](https://github.com/batonogov/typesense/actions/workflows/tests.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/tests.yaml)
 [![Security Scan](https://github.com/batonogov/typesense/actions/workflows/security-scan.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/security-scan.yaml)
 [![Release](https://github.com/batonogov/typesense/actions/workflows/release.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/release.yaml)
 
@@ -194,7 +194,7 @@ task docs
 
 This repository uses GitHub Actions for CI/CD:
 
-- **Test**: Runs on all pushes and PRs to main branch
+- **Tests**: Runs API and performance tests on all pushes and PRs to main branch
 - **Security Scan**: Weekly vulnerability scanning with Trivy
 - **Release**: Automatically creates releases when tags are pushed
 - **Documentation**: Updates documentation when related files change
