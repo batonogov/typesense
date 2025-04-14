@@ -46,8 +46,8 @@ jobs:
 
       - name: Install wrk
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wrk
+          sudo apt update
+          sudo apt install -y wrk
 
       - name: Run Performance Tests
         run: task test-performance
