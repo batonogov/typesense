@@ -1,0 +1,98 @@
+version: '3'
+
+vars:
+  TEST_API_KEY: API_KEY_TEST
+  TEST_TIMEOUT: 30
+  TEST_CONTAINER_NAME: typesense-test-{{.TIMESTAMP}}
+  TIMESTAMP:
+    sh: date +%s
+
+tasks:
+  test:
+    desc: Run all tests
+    deps: [test-api, test-performance]
+
+  build-test-container:
+    desc: Build the test container
+    cmds:
+      - echo "Building test container..."
+      - docker build -t typesense:test .
+
+  start-test-container:
+    desc: Start the test container
+    deps: [build-test-container]
+    cmds:
+      - |
+        CONTAINER_ID=$(docker run --rm -d \
+          --name {{.TEST_CONTAINER_NAME}} \
+          -p 8108:8108 \
+          --health-cmd="curl -f http://localhost:8108/health || exit 1" \
+          --health-interval=1s \
+          --health-timeout=1s \
+          --health-retries=3 \
+          -e TYPESENSE_API_KEY={{.TEST_API_KEY}} \
+          typesense:test \
+          --data-dir /tmp \
+          --api-key={{.TEST_API_KEY}})
+        echo "Container ID: $CONTAINER_ID"
+
+  wait-for-health:
+    desc: Wait for container to become healthy
+    vars:
+      CONTAINER_ID:
+        sh: docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}"
+    cmds:
+      - |
+        echo "Waiting for container to become healthy..."
+        COUNTER=0
+        sleep 4
+        while [ $COUNTER -lt {{.TEST_TIMEOUT}} ]; do
+          HEALTH_STATUS=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' {{.CONTAINER_ID}} 2>/dev/null || echo "unknown")
+          echo "Health status: $HEALTH_STATUS ($COUNTER/{{.TEST_TIMEOUT}})"
+          if [ "$HEALTH_STATUS" = "healthy" ]; then
+            exit 0
+          fi
+          sleep 1
+          COUNTER=$((COUNTER+1))
+        done
+        echo "Container did not become healthy in {{.TEST_TIMEOUT}} seconds"
+        echo "Container logs:"
+        docker logs {{.CONTAINER_ID}} 2>/dev/null > /tmp/typesense-test-$(date +%s).log || echo "Could not get container logs"
+        cat /tmp/typesense-test-*.log
+        docker stop {{.CONTAINER_ID}} 2>/dev/null || true
+        exit 1
+
+  test-api:
+    desc: Run API tests
+    deps: [start-test-container]
+    cmds:
+      - task: wait-for-health
+      - echo "Running API tests..."
+      - ./test_api.sh {{.TEST_API_KEY}}
+      - task: stop-test-container
+
+  test-performance:
+    desc: Run performance tests
+    deps: [start-test-container]
+    cmds:
+      - task: wait-for-health
+      - echo "Running performance tests..."
+      - chmod +x ./test_performance.sh
+      - ./test_performance.sh {{.TEST_API_KEY}}
+      - task: stop-test-container
+
+  stop-test-container:
+    desc: Stop the test container
+    cmds:
+      - |
+        CONTAINER_ID=$(docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}")
+        if [ ! -z "$CONTAINER_ID" ]; then
+          echo "Stopping test container..."
+          docker stop $CONTAINER_ID
+        fi
+
+  clean:
+    desc: Clean up test containers
+    cmds:
+      - echo "Cleaning up test containers..."
+      - docker ps -a --filter "name=typesense-test" --format "{{`{{.ID}}`}}" | xargs -r docker rm -f
