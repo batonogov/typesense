@@ -106,16 +106,22 @@ brew install go-task
 task test
 ```
 
-- Build test container:
-
-```bash
-task build-test-container
-```
-
 - Run API tests only:
 
 ```bash
 task test-api
+```
+
+- Run performance tests only:
+
+```bash
+task test-performance
+```
+
+- Build test container:
+
+```bash
+task build-test-container
 ```
 
 - Clean up test containers:
@@ -146,13 +152,22 @@ TEST_API_KEY=my_custom_key TEST_TIMEOUT=60 task test
 
 ## Test Structure
 
-- `test-api`: Runs API tests
-  1. Builds Docker container
-  1. Starts container
-  1. Waits for container to become healthy
-  1. Executes API tests
-  1. Runs performance tests
-  1. Stops container
+The test suite consists of two main parts:
+
+- `test-api`: Tests basic API functionality
+
+  1. Collection creation
+  1. Document operations
+  1. Search functionality
+  1. Cleanup operations
+
+- `test-performance`: Tests system performance
+
+  1. Search performance
+  1. Document creation speed
+  1. Document retrieval performance
+
+Each test runs in a fresh container instance to ensure isolation.
 
 ## Troubleshooting
 
