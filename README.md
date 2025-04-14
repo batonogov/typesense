@@ -1,6 +1,8 @@
 # Typesense with Healthcheck in Docker
 
 [![Tests](https://github.com/batonogov/typesense/actions/workflows/tests.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/tests.yaml)
+[![Security Scan](https://github.com/batonogov/typesense/actions/workflows/security-scan.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/security-scan.yaml)
+[![Release](https://github.com/batonogov/typesense/actions/workflows/release.yaml/badge.svg)](https://github.com/batonogov/typesense/actions/workflows/release.yaml)
 
 This repository provides a Docker image based on Typesense with an integrated healthcheck.
 The healthcheck uses the curl utility to verify the service's health by pinging its endpoint.
@@ -135,6 +137,68 @@ task clean
 ```bash
 task --list
 ```
+
+## Development Workflow
+
+This repository includes several pipelines to streamline development:
+
+### Local Development
+
+Start a development environment with mounted data volume:
+
+```bash
+task dev
+```
+
+Stop the development environment:
+
+```bash
+task dev-stop
+```
+
+### Backup Data
+
+Create a backup of data from a running development instance:
+
+```bash
+task backup
+```
+
+Backups are stored in `./backups/YYYY-MM-DD/` directory.
+
+### Update Typesense Version
+
+Update to a newer version of Typesense and run tests:
+
+```bash
+task update-typesense version=X.Y.Z
+```
+
+### Code Quality
+
+Run linters and code quality checks:
+
+```bash
+task lint
+```
+
+### Documentation Generation
+
+Generate documentation based on available tasks:
+
+```bash
+task docs
+```
+
+## CI/CD Pipelines
+
+This repository uses GitHub Actions for CI/CD:
+
+- **Tests**: Runs API and performance tests on all pushes and PRs to main branch
+- **Security Scan**: Weekly vulnerability scanning with Trivy
+- **Release**: Automatically creates releases when tags are pushed
+- **Documentation**: Updates documentation when related files change
+- **Update Typesense**: Checks for new Typesense versions weekly
 
 ## Test Parameters
 

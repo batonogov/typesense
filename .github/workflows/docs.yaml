@@ -1,0 +1,36 @@
+name: Documentation
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "Taskfile.yaml"
+      - "README.md"
+      - "docs/**"
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+
+      - name: Generate documentation
+        run: task docs
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add docs/
+          if git diff --staged --quiet; then
+            echo "No changes to documentation"
+          else
+            git commit -m "Update documentation"
+            git push
+          fi

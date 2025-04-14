@@ -2,10 +2,12 @@ version: "3"
 
 vars:
   TEST_API_KEY: API_KEY_TEST
+  DEV_API_KEY: API_KEY_DEV
   TEST_TIMEOUT: 30
   TIMESTAMP:
     sh: date +%s
   TEST_CONTAINER_NAME: typesense-test-{{.TIMESTAMP}}
+  DEV_CONTAINER_NAME: typesense-dev
 
 tasks:
   test:
@@ -95,3 +97,79 @@ tasks:
     cmds:
       - echo "Cleaning up test containers..."
       - docker ps -a --filter "name=typesense-test" --format "{{`{{.ID}}`}}" | xargs -r docker rm -f
+
+  # Development pipeline
+  dev:
+    desc: Start development environment
+    cmds:
+      - echo "Starting development environment..."
+      - docker ps -q --filter "name={{.DEV_CONTAINER_NAME}}" | xargs -r docker rm -f
+      - mkdir -p ./data
+      - |
+        docker run --rm -d \
+          --name {{.DEV_CONTAINER_NAME}} \
+          -p 8108:8108 \
+          -v $(pwd)/data:/data \
+          -e TYPESENSE_API_KEY={{.DEV_API_KEY}} \
+          typesense:test \
+          --data-dir /data \
+          --api-key={{.DEV_API_KEY}}
+      - echo "Development container started. API is available at http://localhost:8108"
+      - echo "Use API key is {{.DEV_API_KEY}}"
+
+  dev-stop:
+    desc: Stop development environment
+    cmds:
+      - echo "Stopping development environment..."
+      - docker stop {{.DEV_CONTAINER_NAME}} || true
+
+  # Backup pipeline
+  backup:
+    desc: Backup data from running instance
+    cmds:
+      - |
+        BACKUP_DIR="./backups/$(date +%Y-%m-%d)"
+        mkdir -p "$BACKUP_DIR"
+        echo "Backing up data to $BACKUP_DIR/typesense-backup.tar.gz"
+        if docker ps -q --filter "name={{.DEV_CONTAINER_NAME}}" | grep -q .; then
+          docker exec {{.DEV_CONTAINER_NAME}} tar -czf - /data | cat > "$BACKUP_DIR/typesense-backup.tar.gz"
+          echo "Backup completed"
+        else
+          echo "Development container is not running. Start it with 'task dev' first."
+          exit 1
+        fi
+
+  # Typesense version update pipeline
+  update-typesense:
+    desc: Update Typesense version
+    vars:
+      version: ''
+    cmds:
+      - echo "Updating Typesense to version {{.version}}..."
+      - sed -i '' "s|typesense/typesense:[0-9.rc]*|typesense/typesense:{{.version}}|g" Dockerfile
+      - task: build-test-container
+      - task: test
+      - echo "Successfully updated to Typesense {{.version}}"
+
+  # Lint pipeline using pre-commit
+  lint:
+    desc: Run linters
+    cmds:
+      - echo "Running linters..."
+      - pre-commit run --all-files
+
+  # Documentation generation pipeline
+  docs:
+    desc: Generate documentation
+    cmds:
+      - echo "Generating documentation..."
+      - |
+        mkdir -p ./docs
+        cat > ./docs/README.md << EOF
+        # Typesense Docker Image Documentation
+
+        ## Available Commands
+
+        $(task --list | grep -v "task: " | sed 's/^\* /### /')
+        EOF
+      - echo "Documentation generated in ./docs/README.md"
