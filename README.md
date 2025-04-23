@@ -257,6 +257,28 @@ docker stop <CONTAINER_ID>
 task clean
 ```
 
+## Creating Tags
+
+### Steps to Create a Tag
+
+1. Ensure all changes are committed and pushed to the repository
+1. Create a new tag with version:
+   ```bash
+   git tag -a v1.0.0 -m "Version 1.0.0"
+   ```
+1. Push the tag to the remote repository:
+   ```bash
+   git push origin v1.0.0
+   ```
+
+### Versioning Rules
+
+Follow semantic versioning (SemVer) when creating tags:
+
+- MAJOR version (1.0.0) - incompatible API changes
+- MINOR version (0.1.0) - new functionality with backward compatibility
+- PATCH version (0.0.1) - backward compatible bug fixes
+
 ## License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for more details.
