@@ -11,3 +11,6 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    ignore:
+      - dependency-name: "*"
+        versions: ["*-rc*", "*-RC*", "*-alpha*", "*-beta*"]
