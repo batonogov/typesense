@@ -1,5 +1,5 @@
 # Use official image
-FROM typesense/typesense:29.0.rc23
+FROM typesense/typesense:29.0.rc24
 
 # Copy curl utility from another image
 COPY --from=ghcr.io/tarampampam/curl:8.13.0 /bin/curl /bin/curl
