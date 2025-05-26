@@ -200,6 +200,118 @@ This repository uses GitHub Actions for CI/CD:
 - **Documentation**: Updates documentation when related files change
 - **Update Typesense**: Checks for new Typesense versions weekly
 
+## Release Management
+
+### Automated Release Process
+
+This project uses a sophisticated automated release system with multiple workflows:
+
+#### 1. Automatic Tagging (`auto-tag.yaml`)
+
+- Monitors changes to `Dockerfile`
+- Extracts Typesense version and creates corresponding Git tags
+- Prevents duplicate tags and ensures version consistency
+
+#### 2. Docker Image Publishing (`publish.yaml`)
+
+- Builds multi-architecture images (amd64, arm64)
+- Publishes to GitHub Container Registry (GHCR)
+- Signs images with Cosign for security
+- Triggered on tag pushes and main branch changes
+
+#### 3. Release Creation (`release.yaml`)
+
+- Creates GitHub releases with detailed release notes
+- Includes Docker usage examples and configuration guides
+- Generates comprehensive changelogs
+- Distinguishes between stable releases and release candidates
+
+#### 4. Release Candidates (`create-rc.yaml`)
+
+- Manual or scheduled RC creation (every Monday)
+- Auto-incrementing RC numbers
+- Creates testing issues for community feedback
+- Includes validation and testing workflows
+
+#### 5. Release Notifications (`release-notification.yaml`)
+
+- Creates announcement issues for stable releases
+- Updates documentation and badges
+- Validates Docker image accessibility
+- Generates security reports
+
+### Release Types
+
+#### Stable Releases
+
+- Format: `v{major}.{minor}` (e.g., `v29.0`)
+- Tagged as `latest` in Docker registry
+- Include comprehensive release notes
+- Trigger community announcements
+
+#### Release Candidates
+
+- Format: `v{major}.{minor}.rc{number}` (e.g., `v29.0.rc1`)
+- For testing and validation
+- Create testing issues automatically
+- Not tagged as `latest`
+
+### Docker Image Tags
+
+Our Docker images are available with multiple tags:
+
+```bash
+# Specific version
+ghcr.io/batonogov/typesense:29.0
+
+# Version with 'v' prefix
+ghcr.io/batonogov/typesense:v29.0
+
+# Latest stable (for non-RC releases)
+ghcr.io/batonogov/typesense:latest
+
+# Release candidates
+ghcr.io/batonogov/typesense:29.0.rc1
+```
+
+### Manual Release Creation
+
+#### Creating a Release Candidate
+
+```bash
+# Via GitHub Actions (manual dispatch)
+# Go to Actions → Create Release Candidate → Run workflow
+
+# Or create tag manually
+git tag -a v29.0.rc1 -m "Release Candidate 29.0.rc1"
+git push origin v29.0.rc1
+```
+
+#### Creating a Stable Release
+
+```bash
+# Tag the stable version
+git tag -a v29.0 -m "Stable Release 29.0"
+git push origin v29.0
+```
+
+### Release Workflow Features
+
+- **Automated Changelog Generation**: Based on Git commits since last release
+- **Docker Image Verification**: Ensures images are accessible before release
+- **Multi-Platform Support**: amd64 and arm64 architectures
+- **Security Scanning**: Integrated vulnerability scanning
+- **Community Engagement**: Automatic testing issues and announcements
+- **Documentation Updates**: README badges and docs sync
+- **Rollback Support**: Tagged branches for easy rollback
+
+### Monitoring Releases
+
+- **GitHub Releases**: [View all releases](https://github.com/batonogov/typesense/releases)
+- **Docker Registry**: [GHCR packages](https://github.com/batonogov/typesense/pkgs/container/typesense)
+- **CI/CD Status**: [GitHub Actions](https://github.com/batonogov/typesense/actions)
+- **Security Scans**: [Security tab](https://github.com/batonogov/typesense/security)
+
 ## Test Parameters
 
 The Taskfile.yaml defines the following variables:
@@ -264,20 +376,20 @@ task clean
 1. Ensure all changes are committed and pushed to the repository
 1. Create a new tag with version:
    ```bash
-   git tag -a v1.0.0 -m "Version 1.0.0"
+   git tag -a v29.0 -m "Version 29.0"
    ```
 1. Push the tag to the remote repository:
    ```bash
-   git push origin v1.0.0
+   git push origin v29.0
    ```
 
 ### Versioning Rules
 
-Follow semantic versioning (SemVer) when creating tags:
+Follow Typesense versioning scheme when creating tags:
 
-- MAJOR version (1.0.0) - incompatible API changes
-- MINOR version (0.1.0) - new functionality with backward compatibility
-- PATCH version (0.0.1) - backward compatible bug fixes
+- MAJOR version (29.0) - major Typesense updates with potential breaking changes
+- MINOR version (28.0 → 29.0) - new Typesense minor releases
+- RELEASE CANDIDATES (29.0.rc1) - testing versions before stable release
 
 ## License
 

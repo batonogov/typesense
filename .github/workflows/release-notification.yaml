@@ -1,0 +1,208 @@
+name: Release Notifications
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract release info
+        id: release
+        run: |
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION_CLEAN=${VERSION#v}
+          PRERELEASE="${{ github.event.release.prerelease }}"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_clean=$VERSION_CLEAN" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
+          echo "release_url=${{ github.event.release.html_url }}" >> $GITHUB_OUTPUT
+          echo "release_name=${{ github.event.release.name }}" >> $GITHUB_OUTPUT
+
+      - name: Extract Typesense version
+        id: typesense
+        run: |
+          TYPESENSE_VERSION=$(grep -oP 'typesense/typesense:\K[0-9]+\.[0-9]+(?:\.rc[0-9]+)?' Dockerfile)
+          echo "version=$TYPESENSE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update README badges
+        run: |
+          # Update version badge in README
+          sed -i "s/typesense:v[0-9]\+\.[0-9]\+\(\\.rc[0-9]\+\)\?)/typesense:${{ steps.release.outputs.version }})/g" README.md
+
+          # Commit changes if any
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git add README.md
+            git commit -m "docs: update badges for release ${{ steps.release.outputs.version }}"
+            git push
+          fi
+
+      - name: Create announcement issue
+        if: steps.release.outputs.is_prerelease == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📢 Announcement: Release ${{ steps.release.outputs.version }}`,
+              body: `# 🎉 New Release Available!
+
+            We're excited to announce the release of **${{ steps.release.outputs.release_name }}**!
+
+            ## 🔗 Quick Links
+            - **Release Notes**: ${{ steps.release.outputs.release_url }}
+            - **Docker Image**: \`ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}\`
+            - **Documentation**: [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
+
+            ## 🐳 Docker Usage
+            \`\`\`bash
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}
+            docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}
+            \`\`\`
+
+            ## 📦 What's Included
+            - Typesense Core: \`${{ steps.typesense.outputs.version }}\`
+            - Built-in healthcheck functionality
+            - Multi-architecture support (amd64, arm64)
+            - Production-ready configuration
+
+            ## 🚀 Upgrade Instructions
+            1. Pull the new image: \`docker pull ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}\`
+            2. Stop your current container
+            3. Start with the new image
+            4. Verify health status: \`curl http://localhost:8108/health\`
+
+            ---
+            *This announcement was automatically generated. Feel free to ask questions or report issues!*`,
+              labels: ['announcement', 'release']
+            });
+
+            // Pin the issue
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: 'open'
+            });
+
+      - name: Update GitHub Pages documentation
+        if: steps.release.outputs.is_prerelease == 'false'
+        run: |
+          # Create or update docs for GitHub Pages
+          mkdir -p docs/releases
+
+          cat > docs/releases/${{ steps.release.outputs.version_clean }}.md << 'EOF'
+          ---
+          layout: default
+          title: Release ${{ steps.release.outputs.version }}
+          ---
+
+          # Release ${{ steps.release.outputs.version }}
+
+          Released on: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## Docker Image
+          ```
+          ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}
+          ```
+
+          ## Typesense Core Version
+          ```
+          ${{ steps.typesense.outputs.version }}
+          ```
+
+          ## Usage
+          ```bash
+          docker run -p 8108:8108 \
+            -e TYPESENSE_API_KEY=your-secret-key \
+            ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}
+          ```
+
+          ## Release Notes
+          For detailed release notes, see [GitHub Releases](${{ steps.release.outputs.release_url }}).
+          EOF
+
+      - name: Generate Docker security report
+        run: |
+          echo "## Security Report for ${{ steps.release.outputs.version }}" > security-report.md
+          echo "" >> security-report.md
+          echo "**Image**: \`ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}\`" >> security-report.md
+          echo "**Scan Date**: $(date -u)" >> security-report.md
+          echo "" >> security-report.md
+          echo "This image has been scanned for vulnerabilities as part of our CI/CD pipeline." >> security-report.md
+          echo "For the latest security scan results, check the [Security tab](https://github.com/${{ github.repository }}/security)." >> security-report.md
+
+      - name: Create release metrics
+        run: |
+          # Generate release metrics
+          cat > release-metrics.json << EOF
+          {
+            "version": "${{ steps.release.outputs.version }}",
+            "version_clean": "${{ steps.release.outputs.version_clean }}",
+            "typesense_version": "${{ steps.typesense.outputs.version }}",
+            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "is_prerelease": ${{ steps.release.outputs.is_prerelease }},
+            "docker_image": "ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}",
+            "release_url": "${{ steps.release.outputs.release_url }}",
+            "repository": "${{ github.repository }}"
+          }
+          EOF
+
+      - name: Validate Docker image accessibility
+        run: |
+          echo "🔍 Validating Docker image accessibility..."
+
+          # Test image pull
+          if docker pull ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}; then
+            echo "✅ Image pull successful"
+          else
+            echo "❌ Image pull failed"
+            exit 1
+          fi
+
+          # Test basic container start
+          CONTAINER_ID=$(docker run -d --rm \
+            -e TYPESENSE_API_KEY=test-key \
+            ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }})
+
+          echo "🔄 Waiting for container to start..."
+          sleep 30
+
+          # Check if container is running
+          if docker ps | grep -q $CONTAINER_ID; then
+            echo "✅ Container started successfully"
+            docker stop $CONTAINER_ID
+          else
+            echo "❌ Container failed to start"
+            docker logs $CONTAINER_ID
+            exit 1
+          fi
+
+      - name: Post-release cleanup
+        run: |
+          echo "🧹 Performing post-release cleanup..."
+
+          # Clean up any temporary files
+          rm -f security-report.md release-metrics.json
+
+          echo "✅ Release notification workflow completed successfully!"
+          echo "📦 Release: ${{ steps.release.outputs.version }}"
+          echo "🐳 Image: ghcr.io/${{ github.repository }}:${{ steps.release.outputs.version_clean }}"

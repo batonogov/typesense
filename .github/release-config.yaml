@@ -1,0 +1,285 @@
+# Release Configuration for Typesense with Healthcheck
+# This file configures automated release workflows and processes
+
+release:
+  # Version configuration
+  versioning:
+    # Source of version information
+    source: dockerfile
+    dockerfile_pattern: 'typesense/typesense:([0-9]+\.[0-9]+(?:\.rc[0-9]+)?)'
+
+    # Version increment strategy
+    auto_increment: true
+    increment_type: minor # major, minor (Typesense uses X.Y versioning)
+
+    # Pre-release configuration
+    prerelease:
+      enabled: true
+      format: "rc{number}"
+      auto_increment_rc: true
+      schedule: "0 9 * * 1" # Every Monday at 9 AM UTC
+
+  # Release types and their configurations
+  types:
+    stable:
+      tag_pattern: "v*.*"
+      docker_tags:
+        - "{version}"
+        - "v{version}"
+        - "latest"
+      make_latest: true
+      create_announcement: true
+
+    release_candidate:
+      tag_pattern: "v*.*.rc*"
+      docker_tags:
+        - "{version}"
+        - "v{version}"
+      make_latest: false
+      create_testing_issue: true
+
+# Docker configuration
+docker:
+  registry: "ghcr.io"
+  repository: "batonogov/typesense"
+
+  # Build configuration
+  build:
+    platforms:
+      - "linux/amd64"
+      - "linux/arm64/v8"
+    cache:
+      enabled: true
+      type: "gha"
+
+    # Security
+    sign_images: true
+    cosign_version: "v2.2.4"
+
+  # Image verification
+  verification:
+    enabled: true
+    timeout: 300 # seconds
+    healthcheck_retries: 3
+    test_commands:
+      - "docker pull {image}"
+      - "docker run --rm -d --name test-{version} -p 8108:8108 -e TYPESENSE_API_KEY=test-key {image}"
+      - "sleep 30"
+      - "curl -f http://localhost:8108/health"
+      - "docker stop test-{version}"
+
+# Release notes configuration
+release_notes:
+  # Automatic generation
+  auto_generate: true
+  include_commits: true
+  commit_format: "- {message} ({short_sha})"
+
+  # Sections to include
+  sections:
+    - name: "Release Information"
+      include_version: true
+      include_typesense_version: true
+      include_docker_info: true
+
+    - name: "Docker Usage"
+      include_quick_start: true
+      include_docker_compose: true
+      include_configuration: true
+
+    - name: "Features"
+      highlight_healthcheck: true
+      highlight_multi_arch: true
+      highlight_security: true
+
+    - name: "Changes"
+      auto_generate_changelog: true
+      include_commit_links: true
+
+  # Templates
+  templates:
+    stable_release: |
+      # Typesense with Healthcheck {version}
+
+      🚀 **Stable Release** of Typesense with integrated healthcheck support.
+
+      ## 📋 Release Information
+      - **Version**: `{version}`
+      - **Typesense Core**: `{typesense_version}`
+      - **Docker Registry**: GitHub Container Registry (GHCR)
+
+    release_candidate: |
+      # Typesense with Healthcheck {version}
+
+      🧪 **Release Candidate** for testing and validation.
+
+      ## ⚠️ Important Notice
+      This is a release candidate intended for testing purposes only.
+      Not recommended for production use.
+
+# Notifications configuration
+notifications:
+  # GitHub Issues
+  issues:
+    stable_release:
+      create_announcement: true
+      title: "📢 Announcement: Release {version}"
+      labels: ["announcement", "release"]
+
+    release_candidate:
+      create_testing_issue: true
+      title: "🧪 Testing Request: RC {version}"
+      labels: ["release-candidate", "testing-required"]
+
+  # Documentation updates
+  documentation:
+    update_readme: true
+    update_badges: true
+    create_release_docs: true
+
+# Testing configuration
+testing:
+  # Automated testing
+  automated:
+    enabled: true
+    on_release_candidate: true
+    on_stable_release: true
+
+    # Test suites
+    suites:
+      - name: "api_tests"
+        script: "test_api.sh"
+        timeout: 300
+
+      - name: "performance_tests"
+        script: "test_performance.sh"
+        timeout: 600
+
+      - name: "healthcheck_tests"
+        commands:
+          - "curl -f http://localhost:8108/health"
+          - "docker inspect {container} --format='{{.State.Health.Status}}'"
+        timeout: 60
+
+      - name: "multi_arch_tests"
+        commands:
+          - "docker pull {image} --platform linux/amd64"
+          - "docker pull {image} --platform linux/arm64"
+        timeout: 180
+
+  # Manual testing requirements
+  manual:
+    release_candidate:
+      required: true
+      checklist:
+        - "Container starts successfully"
+        - "Healthcheck is working"
+        - "API endpoints respond correctly"
+        - "Data persistence works"
+        - "Performance is acceptable"
+        - "Multi-architecture support verified"
+
+    stable_release:
+      required: false
+      approval_required: true
+
+# Security configuration
+security:
+  # Vulnerability scanning
+  scanning:
+    enabled: true
+    tools: ["trivy"]
+    schedule: "0 2 * * 0" # Weekly on Sunday at 2 AM UTC
+    fail_on: "HIGH" # CRITICAL, HIGH, MEDIUM, LOW
+
+  # Image signing
+  signing:
+    enabled: true
+    keyless: true
+    transparency_log: true
+
+# Rollback configuration
+rollback:
+  enabled: true
+  keep_branches: true
+  branch_prefix: "rollback/"
+
+  # Automatic rollback triggers
+  triggers:
+    - "critical_vulnerability"
+    - "failed_healthcheck"
+    - "high_error_rate"
+
+# Monitoring and metrics
+monitoring:
+  # Release metrics
+  metrics:
+    enabled: true
+    track_download_count: true
+    track_deployment_success: true
+    track_error_rates: true
+
+  # Alerts
+  alerts:
+    failed_release: true
+    security_vulnerabilities: true
+    performance_degradation: true
+
+# Integration settings
+integrations:
+  # GitHub
+  github:
+    auto_merge_dependabot: false
+    require_status_checks: true
+    dismiss_stale_reviews: true
+
+  # External services
+  external:
+    slack:
+      enabled: false
+      webhook_url: ""
+      channels:
+        releases: "#releases"
+        testing: "#testing"
+
+    discord:
+      enabled: false
+      webhook_url: ""
+
+# Environment-specific settings
+environments:
+  development:
+    auto_deploy: false
+    require_approval: false
+
+  staging:
+    auto_deploy: true
+    require_approval: false
+    run_tests: true
+
+  production:
+    auto_deploy: false
+    require_approval: true
+    run_full_test_suite: true
+
+# Maintenance
+maintenance:
+  # Cleanup old releases
+  cleanup:
+    enabled: true
+    keep_latest: 10
+    keep_release_candidates: 5
+    cleanup_schedule: "0 3 * * 0" # Weekly on Sunday at 3 AM UTC
+
+  # Version compatibility
+  compatibility:
+    min_typesense_version: "28.0"
+    supported_versions: ["28.*", "29.*"]
+    deprecation_policy: "6_months"
+
+  # Dependencies
+  dependencies:
+    auto_update: true
+    update_schedule: "0 4 * * 1" # Weekly on Monday at 4 AM UTC
+    create_pr: true
+    auto_merge_patch: false

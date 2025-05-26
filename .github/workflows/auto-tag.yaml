@@ -22,7 +22,7 @@ jobs:
       - name: Extract version from Dockerfile
         id: version
         run: |
-          VERSION=$(grep -oP 'typesense/typesense:\K[0-9][^"]*' Dockerfile)
+          VERSION=$(grep -oP 'typesense/typesense:\K[0-9]+\.[0-9]+(?:\.rc[0-9]+)?' Dockerfile)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
 
