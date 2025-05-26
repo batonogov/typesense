@@ -1,0 +1,289 @@
+name: Create Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      rc_number:
+        description: 'RC number (leave empty for auto-increment)'
+        required: false
+        type: string
+      force_create:
+        description: 'Force create even if RC already exists'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    # Create RC every Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+
+jobs:
+  create-rc:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Typesense version from Dockerfile
+        id: typesense
+        run: |
+          TYPESENSE_VERSION=$(grep -oP 'typesense/typesense:\K[0-9]+\.[0-9]+(?:\.rc[0-9]+)?' Dockerfile)
+          echo "version=$TYPESENSE_VERSION" >> $GITHUB_OUTPUT
+          echo "Typesense version: $TYPESENSE_VERSION"
+
+      - name: Determine RC version
+        id: rc_version
+        run: |
+          CURRENT_VERSION="${{ steps.typesense.outputs.version }}"
+
+          # If current version is already an RC, extract base version
+          if [[ "$CURRENT_VERSION" == *".rc"* ]]; then
+            BASE_VERSION=$(echo "$CURRENT_VERSION" | sed 's/\.rc[0-9]*$//')
+          else
+            BASE_VERSION="$CURRENT_VERSION"
+          fi
+
+          # Get manual RC number if provided
+          MANUAL_RC="${{ github.event.inputs.rc_number }}"
+
+          if [ -n "$MANUAL_RC" ]; then
+            RC_NUMBER="$MANUAL_RC"
+          else
+            # Find the highest existing RC for this base version
+            EXISTING_RCS=$(git tag -l "v${BASE_VERSION}.rc*" | sed "s/v${BASE_VERSION}\.rc//g" | sort -n)
+
+            if [ -z "$EXISTING_RCS" ]; then
+              RC_NUMBER=1
+            else
+              LAST_RC=$(echo "$EXISTING_RCS" | tail -1)
+              RC_NUMBER=$((LAST_RC + 1))
+            fi
+          fi
+
+          RC_VERSION="${BASE_VERSION}.rc${RC_NUMBER}"
+          RC_TAG="v${RC_VERSION}"
+
+          echo "rc_version=$RC_VERSION" >> $GITHUB_OUTPUT
+          echo "rc_tag=$RC_TAG" >> $GITHUB_OUTPUT
+          echo "rc_number=$RC_NUMBER" >> $GITHUB_OUTPUT
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          echo "Current Version: $CURRENT_VERSION"
+          echo "Base Version: $BASE_VERSION"
+          echo "RC Version: $RC_VERSION"
+          echo "RC Tag: $RC_TAG"
+
+      - name: Check if RC tag already exists
+        id: check_tag
+        run: |
+          if git tag -l "${{ steps.rc_version.outputs.rc_tag }}" | grep -q .; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "RC tag ${{ steps.rc_version.outputs.rc_tag }} already exists"
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "RC tag ${{ steps.rc_version.outputs.rc_tag }} does not exist"
+          fi
+
+      - name: Stop if tag exists and not forced
+        if: steps.check_tag.outputs.tag_exists == 'true' && github.event.inputs.force_create != 'true'
+        run: |
+          echo "❌ RC tag ${{ steps.rc_version.outputs.rc_tag }} already exists!"
+          echo "Use force_create=true to override or choose a different RC number."
+          exit 1
+
+      - name: Validate changes since last release
+        id: validate_changes
+        run: |
+          # Get the last stable release tag (format: v*.* without rc)
+          LAST_STABLE=$(git tag -l "v*.*" | grep -v "rc" | sort -V | tail -1)
+
+          if [ -n "$LAST_STABLE" ]; then
+            COMMITS_COUNT=$(git rev-list --count ${LAST_STABLE}..HEAD)
+            echo "changes_count=$COMMITS_COUNT" >> $GITHUB_OUTPUT
+            echo "last_stable=$LAST_STABLE" >> $GITHUB_OUTPUT
+
+            if [ "$COMMITS_COUNT" -eq 0 ]; then
+              echo "⚠️ No changes since last stable release $LAST_STABLE"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "✅ Found $COMMITS_COUNT commits since $LAST_STABLE"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No previous stable release found"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "changes_count=unknown" >> $GITHUB_OUTPUT
+            echo "last_stable=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate RC changelog
+        id: changelog
+        run: |
+          # Get commits since last stable release or last RC
+          LAST_REF=$(git tag -l "v*.*" | grep -v "rc" | sort -V | tail -1)
+          if [ -z "$LAST_REF" ]; then
+            # If no stable release, use last RC or initial commit
+            LAST_REF=$(git tag -l "v*.*.rc*" | sort -V | tail -1)
+            if [ -z "$LAST_REF" ]; then
+              LAST_REF=$(git rev-list --max-parents=0 HEAD)
+            fi
+          fi
+
+          echo "## Release Candidate ${{ steps.rc_version.outputs.rc_version }}" > rc_changelog.md
+          echo "" >> rc_changelog.md
+          echo "Based on Typesense ${{ steps.rc_version.outputs.base_version }}" >> rc_changelog.md
+          echo "" >> rc_changelog.md
+          echo "### Changes since $LAST_REF:" >> rc_changelog.md
+
+          COMMITS=$(git log --pretty=format:"- %s (%h)" ${LAST_REF}..HEAD)
+          if [ -n "$COMMITS" ]; then
+            echo "$COMMITS" >> rc_changelog.md
+          else
+            echo "- No code changes (infrastructure/dependencies update)" >> rc_changelog.md
+          fi
+
+          echo "" >> rc_changelog.md
+          echo "### Testing Notes:" >> rc_changelog.md
+          echo "- This is a release candidate for testing purposes" >> rc_changelog.md
+          echo "- Not recommended for production use" >> rc_changelog.md
+          echo "- Please report any issues found during testing" >> rc_changelog.md
+
+      - name: Create RC tag
+        if: steps.check_tag.outputs.tag_exists != 'true' || github.event.inputs.force_create == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          # Delete existing tag if force create is enabled
+          if [ "${{ github.event.inputs.force_create }}" = "true" ] && [ "${{ steps.check_tag.outputs.tag_exists }}" = "true" ]; then
+            echo "🔄 Force creating - deleting existing tag"
+            git tag -d "${{ steps.rc_version.outputs.rc_tag }}" || true
+            git push origin ":refs/tags/${{ steps.rc_version.outputs.rc_tag }}" || true
+          fi
+
+          # Create the RC tag
+          git tag -a "${{ steps.rc_version.outputs.rc_tag }}" -m "Release Candidate ${{ steps.rc_version.outputs.rc_version }}
+
+          Based on Typesense ${{ steps.rc_version.outputs.base_version }}
+          RC Number: ${{ steps.rc_version.outputs.rc_number }}
+
+          $(cat rc_changelog.md)"
+
+          git push origin "${{ steps.rc_version.outputs.rc_tag }}"
+
+          echo "✅ Created and pushed RC tag: ${{ steps.rc_version.outputs.rc_tag }}"
+
+      - name: Create RC branch
+        run: |
+          RC_BRANCH="rc/${{ steps.rc_version.outputs.rc_version }}"
+
+          # Create and push RC branch
+          git checkout -b "$RC_BRANCH"
+          git push origin "$RC_BRANCH"
+
+          echo "✅ Created RC branch: $RC_BRANCH"
+
+      - name: Wait for release creation
+        run: |
+          echo "⏳ Waiting for release workflow to trigger..."
+          sleep 30
+
+          # Check if release workflow has started
+          echo "🔍 Checking for release workflow run..."
+          gh run list --workflow=release.yaml --limit=1 --json status,headSha
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create RC testing issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🧪 Testing Request: RC ${{ steps.rc_version.outputs.rc_version }}`,
+              body: `# 🧪 Release Candidate Testing
+
+            A new release candidate has been created and needs testing!
+
+            ## 📦 RC Information
+            - **Version**: \`${{ steps.rc_version.outputs.rc_version }}\`
+            - **Tag**: \`${{ steps.rc_version.outputs.rc_tag }}\`
+            - **Typesense Core**: \`${{ steps.typesense.outputs.version }}\`
+            - **RC Number**: ${{ steps.rc_version.outputs.rc_number }}
+
+            ## 🐳 Docker Image
+            \`\`\`bash
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.rc_version.outputs.rc_version }}
+            \`\`\`
+
+            ## 🧪 Testing Checklist
+            - [ ] Container starts successfully
+            - [ ] Healthcheck is working
+            - [ ] API endpoints respond correctly
+            - [ ] Data persistence works
+            - [ ] Performance is acceptable
+            - [ ] Multi-architecture support (amd64/arm64)
+
+            ## 🔍 Test Commands
+            \`\`\`bash
+            # Pull and run RC
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.rc_version.outputs.rc_version }}
+            docker run -d --name typesense-rc -p 8108:8108 -e TYPESENSE_API_KEY=test-key ghcr.io/${{ github.repository }}:${{ steps.rc_version.outputs.rc_version }}
+
+            # Check health
+            curl http://localhost:8108/health
+
+            # Basic API test
+            curl -H "X-TYPESENSE-API-KEY: test-key" http://localhost:8108/collections
+            \`\`\`
+
+            ## 📋 Changes in this RC
+            $(cat rc_changelog.md | sed 's/^/            /')
+
+            ## 🐛 Reporting Issues
+            If you find any issues, please:
+            1. Comment on this issue with details
+            2. Include steps to reproduce
+            3. Provide logs if applicable
+
+            ## ✅ Approval Process
+            Once testing is complete and no critical issues are found:
+            - [ ] Mark this issue as resolved
+            - [ ] Proceed with stable release creation
+
+            ---
+            *This RC was automatically created. Please test thoroughly before promoting to stable release.*`,
+              labels: ['release-candidate', 'testing-required'],
+              assignees: []
+            });
+
+            console.log(`Created testing issue #${issue.number}`);
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Release Candidate Created Successfully!"
+          echo ""
+          echo "**RC Version**: ${{ steps.rc_version.outputs.rc_version }}"
+          echo "**Tag**: ${{ steps.rc_version.outputs.rc_tag }}"
+          echo "**Docker Image**: ghcr.io/${{ github.repository }}:${{ steps.rc_version.outputs.rc_version }}"
+          echo ""
+          echo "### Next Steps:"
+          echo "1. ⏳ Wait for Docker image to be built and published"
+          echo "2. 🧪 Test the RC using the testing issue created"
+          echo "3. 🐛 Report any issues found"
+          echo "4. ✅ Approve for stable release if testing passes"
+          echo ""
+          echo "### Useful Commands:"
+          echo "\`\`\`bash"
+          echo "# Pull the RC image"
+          echo "docker pull ghcr.io/${{ github.repository }}:${{ steps.rc_version.outputs.rc_version }}"
+          echo ""
+          echo "# Run the RC"
+          echo "docker run -p 8108:8108 -e TYPESENSE_API_KEY=test-key ghcr.io/${{ github.repository }}:${{ steps.rc_version.outputs.rc_version }}"
+          echo "\`\`\`"
