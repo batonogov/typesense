@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: Get latest Typesense version
         id: latest
@@ -26,7 +26,7 @@ jobs:
 
       - name: Create PR if new version available
         if: steps.latest.outputs.latest_version != steps.current.outputs.current_version
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "Update Typesense to version ${{ steps.latest.outputs.latest_version }}"
