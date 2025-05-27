@@ -48,8 +48,8 @@ This project uses an **optimized event-driven release system** with consolidated
 #### Dependency Management
 
 - **Dependabot**: Configured to check for Typesense updates daily
-- **Purpose**: Automatically creates PRs for stable and RC Typesense versions
-- **Configuration**: Ignores alpha, beta, and dev versions - includes only stable and RC versions
+- **Purpose**: Automatically creates PRs for all new Typesense versions
+- **Configuration**: No version restrictions - workflow handles filtering internally
 
 ## Release Flow
 
@@ -173,17 +173,17 @@ Add `[skip ci]` to commit message when updating Dockerfile
 
 ### Dependabot Configuration
 
-- **Typesense updates**: Daily checks for stable and RC versions
+- **Typesense updates**: Daily checks for all new versions
 - **GitHub Actions**: Weekly updates for action versions
-- **Ignores**: Alpha, beta, and dev versions
+- **Ignores**: Nothing - all versions are tracked
 - **Auto-PRs**: Creates pull requests with detailed changelogs
 
 ### Integration with Release System
 
-1. **Dependabot** creates PR for new Typesense version (stable or RC)
+1. **Dependabot** creates PR for new Typesense version (any type)
 1. **Developer** reviews and merges PR
-1. **release-manager.yaml** detects Dockerfile change and determines release type
-1. **Automatic release** process begins (RC or stable based on version)
+1. **release-manager.yaml** detects Dockerfile change and filters version type
+1. **Automatic release** process begins (RC or stable) or skips (alpha/beta/dev)
 
 ## Monitoring
 
