@@ -13,4 +13,4 @@ updates:
       interval: "daily"
     ignore:
       - dependency-name: "*"
-        versions: ["*-rc*", "*-RC*", "*-alpha*", "*-beta*"]
+        versions: ["*-alpha*", "*-beta*", "*-dev*"]
