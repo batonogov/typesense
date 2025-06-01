@@ -246,10 +246,28 @@ jobs:
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
         with:
           script: |
+            const title = `📢 Announcement: Release ${{ needs.create-release.outputs.tag_name }}`;
+            
+            // Check if issue already exists
+            const existingIssues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              labels: 'announcement,release'
+            });
+            
+            const existingIssue = existingIssues.data.find(issue => issue.title === title);
+            
+            if (existingIssue) {
+              console.log(`Issue already exists: ${existingIssue.html_url}`);
+              console.log('Skipping issue creation to avoid duplicates');
+              return;
+            }
+            
             const { data: issue } = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `📢 Announcement: Release ${{ needs.create-release.outputs.tag_name }}`,
+              title: title,
               body: `# 🎉 New Release Available!
 
             We're excited to announce the release of **Typesense ${{ needs.create-release.outputs.version }}**!

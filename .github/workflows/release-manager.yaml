@@ -405,50 +405,6 @@ jobs:
           git push origin latest
           echo "✅ Updated latest tag"
 
-      - name: Create stable release announcement
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
-        with:
-          script: |
-            const { data: issue } = await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `🎉 Stable Release Created: ${{ needs.create-tag.outputs.tag_name }}`,
-              body: `# 🎉 Stable Release Available!
-
-            A new stable release has been automatically created!
-
-            ## 📦 Release Information
-            - **Version**: \`${{ needs.detect-changes.outputs.version }}\`
-            - **Tag**: \`${{ needs.create-tag.outputs.tag_name }}\`
-            - **Typesense Core**: \`${{ needs.detect-changes.outputs.version }}\`
-            - **Release Type**: Stable
-
-            ## 🐳 Docker Image
-            \`\`\`bash
-            docker pull ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
-            \`\`\`
-
-            ## 🚀 Quick Start
-            \`\`\`bash
-            docker run -d \\
-              --name typesense \\
-              -p 8108:8108 \\
-              -e TYPESENSE_API_KEY=your-secret-key \\
-              ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
-            \`\`\`
-
-            ## 📋 Changes
-            ${{ steps.changes.outputs.last_stable && format('Since last stable release {0}:', steps.changes.outputs.last_stable) || 'Initial stable release' }}
-            - Commits: ${{ steps.changes.outputs.changes_count || 'N/A' }}
-
-            ## 🔗 Links
-            - [Release Notes](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-tag.outputs.tag_name }})
-            - [Docker Image](https://github.com/${{ github.repository }}/pkgs/container/typesense)
-
-            ---
-            *This stable release was automatically created when Typesense core was updated to a stable version.*`,
-              labels: ['release', 'stable', 'automated']
-            });
 
   generate-docs:
     runs-on: ubuntu-latest
