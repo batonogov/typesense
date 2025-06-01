@@ -41,7 +41,7 @@ FROM typesense/typesense:29.0  # Change this version
 ### 2. Automatic Flow
 
 1. **Auto-tag workflow** detects Dockerfile change
-1. Creates Git tag (`v29.0.0`)
+1. Creates Git tag (`v29.0`)
 1. **Publish workflow** builds and pushes Docker images
 1. **Release workflow** creates GitHub release with notes
 1. **Release notification workflow** creates announcements
@@ -114,11 +114,11 @@ docker run -d --name typesense-test -p 8108:8108 -e TYPESENSE_API_KEY=test-key g
 
 # Verify health
 
-curl http://localhost:8108/health
+curl <http://localhost:8108/health>
 
 # Test API
 
-curl -H "X-TYPESENSE-API-KEY: test-key" http://localhost:8108/collections
+curl -H "X-TYPESENSE-API-KEY: test-key" <http://localhost:8108/collections>
 
 # Cleanup
 
@@ -160,7 +160,7 @@ docker stop typesense-test && docker rm typesense-test
 gh api repos/batonogov/typesense/packages
 
 # Pull specific version
-docker pull ghcr.io/batonogov/typesense:v29.0.0
+docker pull ghcr.io/batonogov/typesense:v29.0
 
 # Pull latest
 docker pull ghcr.io/batonogov/typesense:latest
@@ -234,7 +234,7 @@ docker pull ghcr.io/batonogov/typesense:latest
 - Verification commands:
 
 ```bash
-cosign verify ghcr.io/batonogov/typesense:v29.0.0 \
+cosign verify ghcr.io/batonogov/typesense:v29.0 \
   --certificate-identity-regexp="https://github.com/batonogov/typesense" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
