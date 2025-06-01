@@ -94,19 +94,23 @@ The container includes automatic health monitoring:
 
 ### Tags
 
-- `latest` - Latest stable release
-- `v29.0` - Specific version
-- `v29.0.rc1` - Release candidates
+- `latest` - Latest stable release only (excludes RC versions)
+- `v29.0` - Specific stable version
+- `v29.0.rc1` - Release candidates (no `latest` tag)
+- `main` - Development builds from main branch
 
 ### Registries
 
 ```bash
 # GitHub Container Registry (recommended)
-ghcr.io/batonogov/typesense:latest
-
-# Docker Hub
-batonogov/typesense:latest
+ghcr.io/batonogov/typesense:latest     # Stable releases only
+ghcr.io/batonogov/typesense:v29.0      # Specific stable version
+ghcr.io/batonogov/typesense:v29.0.rc1  # Release candidate
 ```
+
+> **Note**: The `latest` tag is only assigned to stable releases
+> (e.g., `v29.0`, `v28.0`). Release candidates and development builds
+> do not receive the `latest` tag.
 
 ## Development
 

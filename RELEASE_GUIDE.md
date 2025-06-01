@@ -1,6 +1,7 @@
 # Release Management Guide
 
-This guide explains how to use the automated release system for the Typesense with Healthcheck project.
+This guide explains how to use the automated release system for the
+Typesense with Healthcheck project.
 
 ## Overview
 
@@ -18,7 +19,7 @@ Our release system consists of several automated workflows that handle:
 ### Stable Releases
 
 - **Format**: `v{major}.{minor}` (e.g., `v29.0`)
-- **Trigger**: Automatic when Dockerfile is updated with stable Typesense version
+- **Trigger**: Automatic when stable version tag is pushed
 - **Docker Tags**: `{version}`, `v{version}`, `latest`
 - **Features**: Full release notes, announcements, latest tag
 
@@ -26,7 +27,7 @@ Our release system consists of several automated workflows that handle:
 
 - **Format**: `v{major}.{minor}.rc{number}` (e.g., `v29.0.rc1`)
 - **Trigger**: Manual or scheduled (Mondays at 9 AM UTC)
-- **Docker Tags**: `{version}`, `v{version}`
+- **Docker Tags**: `{version}`, `v{version}` (NO `latest` tag)
 - **Features**: Testing issues, validation workflows
 
 ## Automatic Release Process
@@ -112,19 +113,19 @@ docker pull ghcr.io/batonogov/typesense:v29.0.rc1
 docker run -d --name typesense-test -p 8108:8108 -e TYPESENSE_API_KEY=test-key ghcr.io/batonogov/typesense:v29.0.rc1
 ```
 
-# Verify health
+## Verify health
 
 curl <http://localhost:8108/health>
 
-# Test API
+## Test API
 
 curl -H "X-TYPESENSE-API-KEY: test-key" <http://localhost:8108/collections>
 
-# Cleanup
+## Cleanup
 
 docker stop typesense-test && docker rm typesense-test
 
-````
+```bash
 
 ## Release Workflow Features
 
@@ -140,6 +141,7 @@ docker stop typesense-test && docker rm typesense-test
 - **Security**: Images signed with Cosign
 - **Registry**: Published to GitHub Container Registry (GHCR)
 - **Verification**: Automatic image accessibility checks
+- **Latest Tag**: Only assigned to stable releases (no RC versions)
 
 ### Community Engagement
 - **Announcements**: Issues created for stable releases
@@ -215,9 +217,10 @@ docker pull ghcr.io/batonogov/typesense:latest
 
 ### Tagging Strategy
 
-- **Stable**: Matches Typesense version exactly
-- **RC**: Adds `.rc{number}` suffix
-- **Latest**: Only for stable releases
+- **Stable**: Matches Typesense version exactly, gets `latest` tag
+- **RC**: Adds `.rc{number}` suffix, does NOT get `latest` tag
+- **Latest Tag**: Only assigned to stable releases when version tags are
+  pushed
 
 ### Branch Management
 
@@ -294,14 +297,15 @@ git tag -d v29.0
 git push origin :refs/tags/v29.0
 ```
 
-# Revert to previous version in Dockerfile
+## Revert to previous version in Dockerfile
 
-git revert <commit-hash>
+git revert COMMIT_HASH
 git push origin main
 
-````
+```bash
 
-### Hotfix Release
+## Hotfix Release
+
 ```bash
 # Create hotfix branch
 git checkout -b hotfix/29.0.1
