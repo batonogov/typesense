@@ -1,8 +1,8 @@
 # Use official image
-FROM typesense/typesense:29.0.rc6
+FROM typesense/typesense:29.0.rc7
 
 # Copy curl utility from another image
-COPY --from=ghcr.io/tarampampam/curl:8.13.0 /bin/curl /bin/curl
+COPY --from=ghcr.io/tarampampam/curl:8.14.0 /bin/curl /bin/curl
 
 # Information
 LABEL maintainer="Fedor Batonogov <f.batonogov@yandex.ru>"
