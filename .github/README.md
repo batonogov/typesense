@@ -2,11 +2,13 @@
 
 ## Overview
 
-This project uses an **optimized event-driven CI/CD architecture** with 5 core workflows and automated dependency management for Typesense Docker image releases.
+This project uses an **optimized event-driven CI/CD architecture** with 5 core
+workflows and automated dependency management for Typesense Docker image
+releases.
 
 ## Architecture Diagram
 
-```
+```text
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Dependabot    │    │  Developer Push  │    │ Manual Trigger  │
 │   (Daily)       │    │   (main branch)  │    │  (Workflow UI)  │
@@ -129,14 +131,15 @@ This project uses an **optimized event-driven CI/CD architecture** with 5 core w
 
 ### Full Process Overview
 
-```
+```text
 Typesense Release → Dependabot PR → Human Review → Merge → Automatic Release
 ```
 
 ### RC Release Flow
 
-```
-Dockerfile: typesense:29.1.rc2 → release-manager → v29.1.rc2 tag → release-publisher → GitHub RC Release
+```text
+Dockerfile: typesense:29.1.rc2 → release-manager → v29.1.rc2 tag →
+release-publisher → GitHub RC Release
                                      ↓
                               RC branch + testing issue
 ```
@@ -155,8 +158,9 @@ Dockerfile: typesense:29.1.rc2 → release-manager → v29.1.rc2 tag → release
 
 ### Stable Release Flow
 
-```
-Dockerfile: typesense:29.1 → release-manager → v29.1 tag → release-publisher → GitHub Stable Release
+```text
+Dockerfile: typesense:29.1 → release-manager → v29.1 tag →
+release-publisher → GitHub Stable Release
                                 ↓                            ↓
                          latest tag update              announcement issue
 ```
@@ -175,7 +179,7 @@ Dockerfile: typesense:29.1 → release-manager → v29.1 tag → release-publish
 
 ### Docker Publishing Flow
 
-```
+```text
 New tag → publish.yaml → Multi-arch build → ghcr.io images → Cosign signature
 ```
 
@@ -225,10 +229,15 @@ New tag → publish.yaml → Multi-arch build → ghcr.io images → Cosign sign
 
 ## Version Detection Logic
 
-| Dockerfile Version | Detected Type | Tag Created | Release Type | Branch Created | Issue Type |
-| ------------------ | ------------- | ----------- | ------------ | -------------- | ---------- |
-| `29.1.rc2`         | RC            | `v29.1.rc2` | Prerelease   | `rc/29.1.rc2`  | Testing    |
-| `29.1`             | Stable        | `v29.1`     | Release      | None           | Announcement |
+| Dockerfile Version | Detected Type | Tag Created | Release Type |
+| ------------------ | ------------- | ----------- | ------------ |
+| `29.1.rc2`         | RC            | `v29.1.rc2` | Prerelease   |
+| `29.1`             | Stable        | `v29.1`     | Release      |
+
+| Branch Created | Issue Type   |
+| -------------- | ------------ |
+| `rc/29.1.rc2`  | Testing      |
+| None           | Announcement |
 
 ```bash
 if [[ "$VERSION" == *"rc"* ]]; then
@@ -298,7 +307,8 @@ Add `[skip ci]` to commit message when updating Dockerfile
 
 ### Before Optimization (11 workflows)
 
-- `auto-tag.yaml` + `create-rc.yaml` + `auto-stable-release.yaml` + `docs.yaml`
+- `auto-tag.yaml` + `create-rc.yaml` + `auto-stable-release.yaml` +
+  `docs.yaml`
 - `release.yaml` + `release-notification.yaml`
 - `auto-pr.yaml` (removed - unnecessary)
 - `update-typesense.yaml` (removed - dependabot handles this)
@@ -311,7 +321,8 @@ Add `[skip ci]` to commit message when updating Dockerfile
 - Plus 3 support workflows
 - Dependabot for dependency management
 
-**Result**: 55% fewer workflow files, clearer responsibilities, easier maintenance
+**Result**: 55% fewer workflow files, clearer responsibilities, easier
+maintenance
 
 ## Monitoring & Observability
 
@@ -340,7 +351,7 @@ Add `[skip ci]` to commit message when updating Dockerfile
 
 ## File Structure
 
-```
+```text
 .github/workflows/
 ├── release-manager.yaml      # 🎯 Master release controller
 ├── release-publisher.yaml    # 📢 GitHub release creator
@@ -475,4 +486,5 @@ Required permissions in repository settings:
 - **GITHUB_TOKEN**: Automatically provided
 - **Registry Access**: Configured via GHCR permissions
 
-This optimized automation system provides reliable, fast, and maintainable releases for Typesense stable and RC versions with minimal human intervention.
+This optimized automation system provides reliable, fast, and maintainable
+releases for Typesense stable and RC versions with minimal human intervention.
