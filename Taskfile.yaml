@@ -188,7 +188,7 @@ tasks:
 
         ## Available Commands
 
-        $(task --list | grep -v "task: " | sed 's/^\* /### /')
+        $(task --list | grep -v "task: " | sed 's/^\* \([^:]*\):\s*\(.*\)/### \1\n\n\2\n/')
         EOF
       - echo "Documentation generated in ./docs/README.md"
 
