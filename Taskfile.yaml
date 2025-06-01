@@ -10,9 +10,21 @@ vars:
   DEV_CONTAINER_NAME: typesense-dev
 
 tasks:
+  # Testing tasks
+  # - test:           Run full test suite (API + performance tests)
+  # - test-quick:     Run only API tests (faster, used in pre-commit)
+  # - test-api:       Run API functionality tests
+  # - test-performance: Run performance/load tests
   test:
     desc: Run all tests
-    deps: [test-api, test-performance]
+    cmds:
+      - task: test-api
+      - task: test-performance
+
+  test-quick:
+    desc: Run quick tests (API only, for pre-commit)
+    cmds:
+      - task: test-api
 
   build-test-container:
     desc: Build the test container
@@ -40,15 +52,13 @@ tasks:
 
   wait-for-health:
     desc: Wait for container to become healthy
-    vars:
-      CONTAINER_ID:
-        sh: docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}"
     cmds:
       - |
         echo "Waiting for container to become healthy..."
         COUNTER=0
         while [ $COUNTER -lt {{.TEST_TIMEOUT}} ]; do
-          HEALTH_STATUS=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' {{.CONTAINER_ID}} 2>/dev/null || echo "unknown")
+          CONTAINER_ID=$(docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}")
+          HEALTH_STATUS=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' $CONTAINER_ID 2>/dev/null || echo "unknown")
           echo "Health status: $HEALTH_STATUS ($COUNTER/{{.TEST_TIMEOUT}})"
           if [ "$HEALTH_STATUS" = "healthy" ]; then
             exit 0
@@ -58,9 +68,10 @@ tasks:
         done
         echo "Container did not become healthy in {{.TEST_TIMEOUT}} seconds"
         echo "Container logs:"
-        docker logs {{.CONTAINER_ID}} 2>/dev/null > /tmp/typesense-test-$(date +%s).log || echo "Could not get container logs"
+        CONTAINER_ID=$(docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}")
+        docker logs $CONTAINER_ID 2>/dev/null > /tmp/typesense-test-$(date +%s).log || echo "Could not get container logs"
         cat /tmp/typesense-test-*.log
-        docker stop {{.CONTAINER_ID}} 2>/dev/null || true
+        docker stop $CONTAINER_ID 2>/dev/null || true
         exit 1
 
   test-api:
