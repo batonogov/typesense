@@ -13,7 +13,7 @@ assignees: ''
 - **Version**: <!-- e.g., v29.0.0 or v29.0.0.rc1 -->
 - **Release Type**: <!-- Stable / Release Candidate -->
 - **Typesense Core Version**: <!-- e.g., 29.0.0 -->
-- **Docker Image**: `ghcr.io/batonogov/typesense:[VERSION]`
+- **Docker Image**: `ghcr.io/batonogov/typesense:v[VERSION]` <!-- e.g., ghcr.io/batonogov/typesense:v28.0 -->
 - **Testing Date**: <!-- YYYY-MM-DD -->
 - **Tester**: @<!-- your-username -->
 
@@ -71,14 +71,14 @@ assignees: ''
 
 ```bash
 # Pull the image
-docker pull ghcr.io/batonogov/typesense:[VERSION]
+docker pull ghcr.io/batonogov/typesense:v[VERSION]
 
 # Run container
 docker run -d --name typesense-test \
   -p 8108:8108 \
   -e TYPESENSE_API_KEY=test-key-123 \
   -v typesense-test-data:/data \
-  ghcr.io/batonogov/typesense:[VERSION]
+  ghcr.io/batonogov/typesense:v[VERSION]
 ```
 
 ### Health Check
@@ -240,7 +240,7 @@ curl -H "X-TYPESENSE-API-KEY: test-key-123" \
 ## 📚 References
 
 - **Release Notes**: <!-- Link to release notes -->
-- **Docker Registry**: `ghcr.io/batonogov/typesense:[VERSION]`
+- **Docker Registry**: `ghcr.io/batonogov/typesense:v[VERSION]`
 - **Documentation**: https://github.com/batonogov/typesense/blob/main/README.md
 - **Previous Testing**: <!-- Link to previous release testing if relevant -->
 

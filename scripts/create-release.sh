@@ -237,7 +237,7 @@ get_release_message() {
 
 This release updates Typesense to version $version with integrated healthcheck support.
 
-Docker image: ghcr.io/batonogov/typesense:$version"
+Docker image: ghcr.io/batonogov/typesense:v$version"
             ;;
         "rc")
             local base_version
@@ -250,7 +250,7 @@ Docker image: ghcr.io/batonogov/typesense:$version"
 This is release candidate $rc_number based on Typesense $base_version.
 This version is intended for testing purposes only.
 
-Docker image: ghcr.io/batonogov/typesense:$version
+Docker image: ghcr.io/batonogov/typesense:v$version
 
 Please test thoroughly before promoting to stable release."
             ;;
@@ -319,7 +319,7 @@ create_stable_release() {
     create_git_tag "$version" "$message"
 
     log_success "Stable release $version created successfully!"
-    log_info "Docker image will be available at: ghcr.io/batonogov/typesense:$version"
+    log_info "Docker image will be available at: ghcr.io/batonogov/typesense:v$version"
     log_info "Release notes will be generated automatically"
 }
 
@@ -353,7 +353,7 @@ create_rc_release() {
     trigger_github_workflow "create-rc.yaml" "-f rc_number=$rc_number"
 
     log_success "Release candidate $full_version created successfully!"
-    log_info "Docker image will be available at: ghcr.io/batonogov/typesense:$full_version"
+    log_info "Docker image will be available at: ghcr.io/batonogov/typesense:v$full_version"
     log_info "Testing issue will be created automatically"
 }
 
