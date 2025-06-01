@@ -44,7 +44,7 @@ releases.
             │              │ │          │ │scan.yaml  │
             │ Docker Build │ │API Tests │ │Weekly     │
             └──────────────┘ └──────────┘ │Trivy Scan │
-                                         └───────────┘
+                                          └───────────┘
 ```
 
 ## Supported Versions
