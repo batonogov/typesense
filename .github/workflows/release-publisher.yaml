@@ -128,7 +128,6 @@ jobs:
 
             ### Pull Commands
             ```bash
-            # Recommended: With tag (includes 'v' prefix)
             docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag_name }}
             ```
 
@@ -247,7 +246,7 @@ jobs:
         with:
           script: |
             const title = `📢 Announcement: Release ${{ needs.create-release.outputs.tag_name }}`;
-            
+
             // Check if issue already exists
             const existingIssues = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
@@ -255,15 +254,15 @@ jobs:
               state: 'all',
               labels: 'announcement,release'
             });
-            
+
             const existingIssue = existingIssues.data.find(issue => issue.title === title);
-            
+
             if (existingIssue) {
               console.log(`Issue already exists: ${existingIssue.html_url}`);
               console.log('Skipping issue creation to avoid duplicates');
               return;
             }
-            
+
             const { data: issue } = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
