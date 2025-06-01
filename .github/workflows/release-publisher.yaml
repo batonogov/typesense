@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name to create release for'
+        description: "Tag name to create release for"
         required: true
         type: string
-        default: 'v28.0'
+        default: "v28.0"
 
 jobs:
   create-release:
@@ -43,7 +43,7 @@ jobs:
           else
             TAG_NAME="${{ github.ref_name }}"
           fi
-          
+
           VERSION=${TAG_NAME#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
@@ -259,13 +259,13 @@ jobs:
 
             ## 🔗 Quick Links
             - **Release Notes**: ${{ needs.create-release.outputs.release_url }}
-            - **Docker Image**: \`ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}\`
+            - **Docker Image**: \`ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}\`
             - **Documentation**: [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
 
             ## 🐳 Docker Usage
             \`\`\`bash
-            docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
-            docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+            docker pull ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}
+            docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}
             \`\`\`
 
             ## 📦 What's Included
@@ -275,7 +275,7 @@ jobs:
             - Production-ready configuration
 
             ## 🚀 Upgrade Instructions
-            1. Pull the new image: \`docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}\`
+            1. Pull the new image: \`docker pull ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}\`
             2. Stop your current container
             3. Start with the new image
             4. Verify health status: \`curl http://localhost:8108/health\`
@@ -311,7 +311,7 @@ jobs:
 
           ## Docker Image
           ```
-          ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+          ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}
           ```
 
           ## Typesense Core Version
@@ -323,7 +323,7 @@ jobs:
           ```bash
           docker run -p 8108:8108 \
             -e TYPESENSE_API_KEY=your-secret-key \
-            ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+            ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}
           ```
 
           ## Release Notes
@@ -336,13 +336,13 @@ jobs:
           echo "🔍 Validating Docker image accessibility..."
 
           # Test image pull
-          if docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}; then
+          if docker pull ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}; then
             echo "✅ Image pull successful"
-            
+
             # Test basic container start
             CONTAINER_ID=$(docker run -d --rm \
               -e TYPESENSE_API_KEY=test-key \
-              ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }})
+              ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }})
 
             echo "🔄 Waiting for container to start..."
             sleep 30
@@ -370,7 +370,7 @@ jobs:
             "typesense_version": "${{ needs.create-release.outputs.typesense_version }}",
             "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "is_prerelease": ${{ needs.create-release.outputs.is_prerelease }},
-            "docker_image": "ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}",
+            "docker_image": "ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}",
             "release_url": "${{ needs.create-release.outputs.release_url }}",
             "repository": "${{ github.repository }}"
           }
@@ -383,10 +383,10 @@ jobs:
           echo "**Type**: ${{ needs.create-release.outputs.release_type }}"
           echo "**Version**: ${{ needs.create-release.outputs.version }}"
           echo "**Typesense Core**: ${{ needs.create-release.outputs.typesense_version }}"
-          echo "**Docker Image**: ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}"
+          echo "**Docker Image**: ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}"
           echo "**Release URL**: ${{ needs.create-release.outputs.release_url }}"
           echo ""
           echo "### Quick Start Command:"
           echo "\`\`\`bash"
-          echo "docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}"
+          echo "docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:v${{ needs.create-release.outputs.version }}"
           echo "\`\`\`"
