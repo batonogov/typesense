@@ -134,7 +134,6 @@ task --list
 
 ## Documentation
 
-- 📚 [Examples](examples/) - Docker Compose and Kubernetes examples
 - 🔧 [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
 - 🛠 [Development Guide](DEVELOPMENT.md) - Contributing and development
   setup
