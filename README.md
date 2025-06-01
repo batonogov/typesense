@@ -282,17 +282,14 @@ This project uses a sophisticated automated release system with multiple workflo
 Our Docker images are available with multiple tags:
 
 ```bash
-# Specific version
-ghcr.io/batonogov/typesense:29.0
-
-# Version with 'v' prefix
+# Recommended: Version with 'v' prefix
 ghcr.io/batonogov/typesense:v29.0
 
 # Latest stable (for non-RC releases)
 ghcr.io/batonogov/typesense:latest
 
 # Release candidates
-ghcr.io/batonogov/typesense:29.0.rc1
+ghcr.io/batonogov/typesense:v29.0.rc1
 ```
 
 ### Manual Release Creation

@@ -278,7 +278,7 @@ main() {
     log_info "Git tag: $git_tag"
 
     if [[ "$check_image" == true && "$dry_run" == false ]]; then
-        log_info "Docker image: ghcr.io/batonogov/typesense:$version"
+        log_info "Docker image: ghcr.io/batonogov/typesense:v$version"
     fi
 }
 

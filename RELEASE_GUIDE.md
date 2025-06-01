@@ -108,8 +108,8 @@ git push origin v29.0.rc1
 
 ```bash
 # Pull and test RC
-docker pull ghcr.io/batonogov/typesense:29.0.rc1
-docker run -d --name typesense-test -p 8108:8108 -e TYPESENSE_API_KEY=test-key ghcr.io/batonogov/typesense:29.0.rc1
+docker pull ghcr.io/batonogov/typesense:v29.0.rc1
+docker run -d --name typesense-test -p 8108:8108 -e TYPESENSE_API_KEY=test-key ghcr.io/batonogov/typesense:v29.0.rc1
 ```
 
 # Verify health
@@ -160,7 +160,7 @@ docker stop typesense-test && docker rm typesense-test
 gh api repos/batonogov/typesense/packages
 
 # Pull specific version
-docker pull ghcr.io/batonogov/typesense:29.0.0
+docker pull ghcr.io/batonogov/typesense:v29.0.0
 
 # Pull latest
 docker pull ghcr.io/batonogov/typesense:latest
@@ -234,7 +234,7 @@ docker pull ghcr.io/batonogov/typesense:latest
 - Verification commands:
 
 ```bash
-cosign verify ghcr.io/batonogov/typesense:29.0.0 \
+cosign verify ghcr.io/batonogov/typesense:v29.0.0 \
   --certificate-identity-regexp="https://github.com/batonogov/typesense" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
