@@ -21,7 +21,7 @@
 
 <!-- Development Tools -->
 
-[![Typesense Version](https://img.shields.io/badge/typesense-28.0-blue?style=flat-square)](https://github.com/typesense/typesense/releases)
+[![Typesense Version](https://img.shields.io/badge/typesense-29.0.rc2-blue?style=flat-square)](https://github.com/typesense/typesense/releases)
 [![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?style=flat-square&logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 [![Taskfile](https://img.shields.io/badge/task-enabled-blue?style=flat-square&logo=task)](https://taskfile.dev/)
 
