@@ -1,0 +1,425 @@
+name: Release Manager
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'Taskfile.yaml'
+      - 'README.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      rc_number:
+        description: 'RC number (leave empty for auto-increment)'
+        required: false
+        type: string
+      force_create:
+        description: 'Force create even if tag already exists'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dockerfile_changed: ${{ steps.changes.outputs.dockerfile }}
+      docs_changed: ${{ steps.changes.outputs.docs }}
+      version: ${{ steps.version.outputs.version }}
+      is_rc: ${{ steps.version.outputs.is_rc }}
+      release_type: ${{ steps.version.outputs.release_type }}
+      should_skip: ${{ steps.version.outputs.should_skip }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q "Dockerfile"; then
+            echo "dockerfile=true" >> $GITHUB_OUTPUT
+          else
+            echo "dockerfile=false" >> $GITHUB_OUTPUT
+          fi
+
+          if git diff --name-only HEAD~1 HEAD | grep -qE "(Taskfile.yaml|README.md|docs/)"; then
+            echo "docs=true" >> $GITHUB_OUTPUT
+          else
+            echo "docs=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract version info
+        id: version
+        run: |
+          VERSION=$(grep 'typesense/typesense:' Dockerfile | cut -d ':' -f 2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if version should be ignored (alpha, beta, dev)
+          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]] || [[ "$VERSION" == *"dev"* ]]; then
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "release_type=Ignored Version" >> $GITHUB_OUTPUT
+            echo "is_rc=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Skipping version $VERSION (alpha/beta/dev not supported)"
+            exit 0
+          else
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [[ "$VERSION" == *"rc"* ]]; then
+            echo "is_rc=true" >> $GITHUB_OUTPUT
+            echo "release_type=Release Candidate" >> $GITHUB_OUTPUT
+          else
+            echo "is_rc=false" >> $GITHUB_OUTPUT
+            echo "release_type=Stable Release" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Detected version: $VERSION"
+          echo "Release type: $([ "$VERSION" == *"rc"* ] && echo "RC" || echo "Stable")"
+
+  create-tag:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dockerfile_changed == 'true' && needs.detect-changes.outputs.should_skip != 'true'
+    permissions:
+      contents: write
+    outputs:
+      tag_created: ${{ steps.tag.outputs.created }}
+      tag_name: ${{ steps.tag.outputs.name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          TAG_NAME="v${{ needs.detect-changes.outputs.version }}"
+          if git tag -l "$TAG_NAME" | grep -q .; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME does not exist"
+          fi
+
+      - name: Create tag
+        id: tag
+        if: steps.check_tag.outputs.exists != 'true' || github.event.inputs.force_create == 'true'
+        run: |
+          TAG_NAME="v${{ needs.detect-changes.outputs.version }}"
+          TAG_MESSAGE="${{ needs.detect-changes.outputs.release_type }} ${{ needs.detect-changes.outputs.version }}
+
+          Typesense Core: ${{ needs.detect-changes.outputs.version }}
+          Release Type: ${{ needs.detect-changes.outputs.release_type }}
+
+          This tag was automatically created when the Dockerfile was updated."
+
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          if [ "${{ github.event.inputs.force_create }}" = "true" ] && [ "${{ steps.check_tag.outputs.exists }}" = "true" ]; then
+            echo "🔄 Force creating - deleting existing tag"
+            git tag -d "$TAG_NAME" || true
+            git push origin ":refs/tags/$TAG_NAME" || true
+          fi
+
+          git tag -a "$TAG_NAME" -m "$TAG_MESSAGE"
+          git push origin "$TAG_NAME"
+
+          echo "created=true" >> $GITHUB_OUTPUT
+          echo "name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Created and pushed ${{ needs.detect-changes.outputs.release_type }} tag: $TAG_NAME"
+
+  manage-rc:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, create-tag]
+    if: needs.detect-changes.outputs.is_rc == 'true' && needs.create-tag.outputs.tag_created == 'true'
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine RC details
+        id: rc_details
+        run: |
+          CURRENT_VERSION="${{ needs.detect-changes.outputs.version }}"
+          BASE_VERSION=$(echo "$CURRENT_VERSION" | sed 's/\.rc[0-9]*$//')
+
+          MANUAL_RC="${{ github.event.inputs.rc_number }}"
+          if [ -n "$MANUAL_RC" ]; then
+            RC_NUMBER="$MANUAL_RC"
+          else
+            EXISTING_RCS=$(git tag -l "v${BASE_VERSION}.rc*" | sed "s/v${BASE_VERSION}\.rc//g" | sort -n)
+            if [ -z "$EXISTING_RCS" ]; then
+              RC_NUMBER=1
+            else
+              LAST_RC=$(echo "$EXISTING_RCS" | tail -1)
+              RC_NUMBER=$((LAST_RC + 1))
+            fi
+          fi
+
+          RC_VERSION="${BASE_VERSION}.rc${RC_NUMBER}"
+          echo "rc_version=$RC_VERSION" >> $GITHUB_OUTPUT
+          echo "rc_number=$RC_NUMBER" >> $GITHUB_OUTPUT
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create RC branch
+        run: |
+          RC_BRANCH="rc/${{ needs.detect-changes.outputs.version }}"
+          git checkout -b "$RC_BRANCH"
+          git push origin "$RC_BRANCH"
+          echo "✅ Created RC branch: $RC_BRANCH"
+
+      - name: Generate RC changelog
+        run: |
+          LAST_REF=$(git tag -l "v*.*" | grep -v "rc" | sort -V | tail -1)
+          if [ -z "$LAST_REF" ]; then
+            LAST_REF=$(git tag -l "v*.*.rc*" | sort -V | tail -1)
+            if [ -z "$LAST_REF" ]; then
+              LAST_REF=$(git rev-list --max-parents=0 HEAD)
+            fi
+          fi
+
+          echo "## Release Candidate ${{ needs.detect-changes.outputs.version }}" > rc_changelog.md
+          echo "" >> rc_changelog.md
+          echo "Based on Typesense ${{ steps.rc_details.outputs.base_version }}" >> rc_changelog.md
+          echo "" >> rc_changelog.md
+          echo "### Changes since $LAST_REF:" >> rc_changelog.md
+
+          COMMITS=$(git log --pretty=format:"- %s (%h)" ${LAST_REF}..HEAD)
+          if [ -n "$COMMITS" ]; then
+            echo "$COMMITS" >> rc_changelog.md
+          else
+            echo "- No code changes (infrastructure/dependencies update)" >> rc_changelog.md
+          fi
+
+          echo "" >> rc_changelog.md
+          echo "### Testing Notes:" >> rc_changelog.md
+          echo "- This is a release candidate for testing purposes" >> rc_changelog.md
+          echo "- Not recommended for production use" >> rc_changelog.md
+          echo "- Please report any issues found during testing" >> rc_changelog.md
+
+      - name: Create RC testing issue
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const changelog = fs.readFileSync('rc_changelog.md', 'utf8');
+
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🧪 Testing Request: RC ${{ needs.detect-changes.outputs.version }}`,
+              body: `# 🧪 Release Candidate Testing
+
+            A new release candidate has been created and needs testing!
+
+            ## 📦 RC Information
+            - **Version**: \`${{ needs.detect-changes.outputs.version }}\`
+            - **Tag**: \`${{ needs.create-tag.outputs.tag_name }}\`
+            - **Typesense Core**: \`${{ needs.detect-changes.outputs.version }}\`
+            - **RC Number**: ${{ steps.rc_details.outputs.rc_number }}
+
+            ## 🐳 Docker Image
+            \`\`\`bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
+            \`\`\`
+
+            ## 🧪 Testing Checklist
+            - [ ] Container starts successfully
+            - [ ] Healthcheck is working
+            - [ ] API endpoints respond correctly
+            - [ ] Data persistence works
+            - [ ] Performance is acceptable
+            - [ ] Multi-architecture support (amd64/arm64)
+
+            ## 🔍 Test Commands
+            \`\`\`bash
+            # Pull and run RC
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
+            docker run -d --name typesense-rc -p 8108:8108 -e TYPESENSE_API_KEY=test-key ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
+
+            # Check health
+            curl http://localhost:8108/health
+
+            # Basic API test
+            curl -H "X-TYPESENSE-API-KEY: test-key" http://localhost:8108/collections
+            \`\`\`
+
+            ## 📋 Changes in this RC
+            ${changelog}
+
+            ## 🐛 Reporting Issues
+            If you find any issues, please:
+            1. Comment on this issue with details
+            2. Include steps to reproduce
+            3. Provide logs if applicable
+
+            ## ✅ Approval Process
+            Once testing is complete and no critical issues are found:
+            - [ ] Mark this issue as resolved
+            - [ ] Proceed with stable release creation
+
+            ---
+            *This RC was automatically created. Please test thoroughly before promoting to stable release.*`,
+              labels: ['release-candidate', 'testing-required']
+            });
+
+            console.log(`Created testing issue #${issue.number}`);
+
+  manage-stable:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, create-tag]
+    if: needs.detect-changes.outputs.is_rc == 'false' && needs.create-tag.outputs.tag_created == 'true'
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changes since last stable release
+        id: changes
+        run: |
+          LAST_STABLE=$(git tag -l "v*.*" | grep -v "rc" | sort -V | tail -1)
+
+          if [ -n "$LAST_STABLE" ]; then
+            COMMITS_COUNT=$(git rev-list --count ${LAST_STABLE}..HEAD)
+            echo "changes_count=$COMMITS_COUNT" >> $GITHUB_OUTPUT
+            echo "last_stable=$LAST_STABLE" >> $GITHUB_OUTPUT
+
+            if [ "$COMMITS_COUNT" -eq 0 ]; then
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "changes_count=unknown" >> $GITHUB_OUTPUT
+            echo "last_stable=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update latest tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git tag -d latest || true
+          git push origin :refs/tags/latest || true
+          git tag latest
+          git push origin latest
+          echo "✅ Updated latest tag"
+
+      - name: Create stable release announcement
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🎉 Stable Release Created: ${{ needs.create-tag.outputs.tag_name }}`,
+              body: `# 🎉 Stable Release Available!
+
+            A new stable release has been automatically created!
+
+            ## 📦 Release Information
+            - **Version**: \`${{ needs.detect-changes.outputs.version }}\`
+            - **Tag**: \`${{ needs.create-tag.outputs.tag_name }}\`
+            - **Typesense Core**: \`${{ needs.detect-changes.outputs.version }}\`
+            - **Release Type**: Stable
+
+            ## 🐳 Docker Image
+            \`\`\`bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
+            \`\`\`
+
+            ## 🚀 Quick Start
+            \`\`\`bash
+            docker run -d \\
+              --name typesense \\
+              -p 8108:8108 \\
+              -e TYPESENSE_API_KEY=your-secret-key \\
+              ghcr.io/${{ github.repository }}:${{ needs.detect-changes.outputs.version }}
+            \`\`\`
+
+            ## 📋 Changes
+            ${{ steps.changes.outputs.last_stable && format('Since last stable release {0}:', steps.changes.outputs.last_stable) || 'Initial stable release' }}
+            - Commits: ${{ steps.changes.outputs.changes_count || 'N/A' }}
+
+            ## 🔗 Links
+            - [Release Notes](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-tag.outputs.tag_name }})
+            - [Docker Image](https://github.com/${{ github.repository }}/pkgs/container/typesense)
+
+            ---
+            *This stable release was automatically created when Typesense core was updated to a stable version.*`,
+              labels: ['release', 'stable', 'automated']
+            });
+
+  generate-docs:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docs_changed == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+
+      - name: Generate documentation
+        run: task docs
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add docs/
+          if git diff --staged --quiet; then
+            echo "No changes to documentation"
+          else
+            git commit -m "Update documentation"
+            git push
+          fi
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, create-tag, manage-rc, manage-stable, generate-docs]
+    if: always()
+    steps:
+      - name: Release Summary
+        run: |
+          echo "## 🚀 Release Manager Summary"
+          echo ""
+          echo "**Version**: ${{ needs.detect-changes.outputs.version }}"
+          echo "**Type**: ${{ needs.detect-changes.outputs.release_type }}"
+
+          if [ "${{ needs.detect-changes.outputs.should_skip }}" = "true" ]; then
+            echo "**Status**: ⏭️ Skipped (alpha/beta/dev version)"
+            echo ""
+            echo "Version ${{ needs.detect-changes.outputs.version }} was skipped because it contains alpha, beta, or dev."
+            echo "Only stable and RC versions are processed automatically."
+          else
+            echo "**Tag Created**: ${{ needs.create-tag.outputs.tag_created || 'false' }}"
+            echo "**Tag Name**: ${{ needs.create-tag.outputs.tag_name || 'N/A' }}"
+            echo ""
+            if [ "${{ needs.detect-changes.outputs.dockerfile_changed }}" = "true" ]; then
+              echo "✅ Dockerfile updated - release process initiated"
+            fi
+            if [ "${{ needs.detect-changes.outputs.docs_changed }}" = "true" ]; then
+              echo "✅ Documentation updated"
+            fi
+            echo ""
+            echo "Next: The release-publisher workflow will create the GitHub release."
+          fi

@@ -1,0 +1,92 @@
+name: Update Badges
+
+on:
+  push:
+    paths:
+      - 'Dockerfile'
+    branches:
+      - main
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 6 AM UTC
+  workflow_dispatch:
+
+jobs:
+  update-badges:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Typesense version from Dockerfile
+        id: extract-version
+        run: |
+          VERSION=$(grep "FROM typesense/typesense:" Dockerfile | sed 's/.*typesense\/typesense:\([^[:space:]]*\).*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted Typesense version: $VERSION"
+
+      - name: Update README badges
+        id: update-readme
+        run: |
+          CURRENT_VERSION="${{ steps.extract-version.outputs.version }}"
+
+          # Update Typesense version badge
+          sed -i "s|\(https://img\.shields\.io/badge/typesense-\)[^-]*\(-blue\)|\1$CURRENT_VERSION\2|g" README.md
+
+          # Check if changes were made
+          if git diff --quiet README.md; then
+            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "No changes to README.md"
+          else
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "README.md updated with version $CURRENT_VERSION"
+          fi
+
+      - name: Check for other outdated badges
+        run: |
+          echo "Checking badge accessibility..."
+
+          # Extract all shield.io URLs and check if they're accessible
+          grep -o 'https://img\.shields\.io/[^)]*' README.md | while read -r url; do
+            if ! curl -f -s "$url" > /dev/null; then
+              echo "Warning: Badge may be inaccessible: $url"
+            fi
+          done
+
+      - name: Create Pull Request
+        if: steps.update-readme.outputs.changes == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "docs: update Typesense version badge to ${{ steps.extract-version.outputs.version }}"
+          title: "Update badges for Typesense ${{ steps.extract-version.outputs.version }}"
+          body: |
+            ## 🏷️ Badge Update
+
+            This PR automatically updates the README badges to reflect the current Typesense version.
+
+            **Changes:**
+            - Updated Typesense version badge from previous version to `${{ steps.extract-version.outputs.version }}`
+
+            **Verification:**
+            - [ ] Badges are displaying correctly
+            - [ ] All links are functional
+            - [ ] Version matches Dockerfile
+
+            ---
+
+            *This PR was created automatically by the Update Badges workflow*
+          branch: update-badges-${{ steps.extract-version.outputs.version }}
+          delete-branch: true
+          draft: false
+
+      - name: Auto-merge if only version update
+        if: steps.update-readme.outputs.changes == 'true'
+        run: |
+          echo "Badge update PR created successfully"
+          echo "Version updated to: ${{ steps.extract-version.outputs.version }}"
