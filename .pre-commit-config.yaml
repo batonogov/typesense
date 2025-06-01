@@ -89,6 +89,16 @@ repos:
         args: ["-r", "."]
         files: '\.py$'
 
+  # Run tests
+  - repo: local
+    hooks:
+      - id: task-test
+        name: Run Typesense tests
+        entry: task test
+        language: system
+        pass_filenames: false
+        always_run: true
+
 # Global settings
 default_language_version:
   python: python3.13
