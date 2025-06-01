@@ -10,7 +10,7 @@ assignees: ''
 
 ## 📦 Release Information
 
-- **Version**: <!-- e.g., v29.0.0 or v29.0.0.rc1 -->
+- **Version**: <!-- e.g., v29.0 or v29.0.rc1 -->
 - **Release Type**: <!-- Stable / Release Candidate -->
 - **Typesense Core Version**: <!-- e.g., 29.0.0 -->
 - **Docker Image**: `ghcr.io/batonogov/typesense:v[VERSION]` <!-- e.g., ghcr.io/batonogov/typesense:v28.0 -->
@@ -241,7 +241,7 @@ curl -H "X-TYPESENSE-API-KEY: test-key-123" \
 
 - **Release Notes**: <!-- Link to release notes -->
 - **Docker Registry**: `ghcr.io/batonogov/typesense:v[VERSION]`
-- **Documentation**: https://github.com/batonogov/typesense/blob/main/README.md
+- **Documentation**: <https://github.com/batonogov/typesense/blob/main/README.md>
 - **Previous Testing**: <!-- Link to previous release testing if relevant -->
 
 ______________________________________________________________________
