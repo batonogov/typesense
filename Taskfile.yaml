@@ -1,5 +1,6 @@
 version: "3"
 
+# Test workflow trigger - documentation workflow fixes
 vars:
   TEST_API_KEY: API_KEY_TEST
   DEV_API_KEY: API_KEY_DEV
