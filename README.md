@@ -5,7 +5,7 @@
 [![Release](https://github.com/batonogov/typesense/actions/workflows/release-publisher.yaml/badge.svg?style=flat-square)](https://github.com/batonogov/typesense/actions/workflows/release-publisher.yaml)
 
 [![Latest Release](https://img.shields.io/github/v/release/batonogov/typesense?style=flat-square)](https://github.com/batonogov/typesense/releases/latest)
-[![Docker Image Size](https://img.shields.io/docker/image-size/ghcr.io/batonogov/typesense/latest?style=flat-square&label=image%20size)](https://github.com/batonogov/typesense/pkgs/container/typesense)
+[![Downloads](https://img.shields.io/github/downloads/batonogov/typesense/total?style=flat-square)](https://github.com/batonogov/typesense/releases)
 [![License](https://img.shields.io/github/license/batonogov/typesense?style=flat-square)](LICENSE)
 
 ## Overview
