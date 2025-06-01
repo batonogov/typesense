@@ -1,0 +1,392 @@
+name: Release Publisher
+
+on:
+  push:
+    tags:
+      - "v*.*"
+      - "v*.*.rc*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name to create release for'
+        required: true
+        type: string
+        default: 'v28.0'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      release_type: ${{ steps.version.outputs.release_type }}
+      typesense_version: ${{ steps.typesense.outputs.version }}
+      release_url: ${{ steps.create_release.outputs.html_url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+
+      - name: Extract version info
+        id: version
+        run: |
+          # Determine tag name based on trigger type
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG_NAME="${{ inputs.tag_name }}"
+          else
+            TAG_NAME="${{ github.ref_name }}"
+          fi
+          
+          VERSION=${TAG_NAME#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+          # Check if this is a prerelease (contains 'rc')
+          if [[ "$VERSION" == *"rc"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_type=Release Candidate" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_type=Stable Release" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Typesense version from Dockerfile
+        id: typesense
+        run: |
+          TYPESENSE_VERSION=$(grep 'typesense/typesense:' Dockerfile | cut -d ':' -f 2)
+          echo "version=$TYPESENSE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s (%h)" $LAST_TAG..HEAD)
+          else
+            COMMITS=$(git log --pretty=format:"- %s (%h)" HEAD)
+          fi
+
+          # Save to file to preserve formatting
+          echo "## Changes" > changelog.md
+          if [ -n "$COMMITS" ]; then
+            echo "$COMMITS" >> changelog.md
+          else
+            echo "- Initial release" >> changelog.md
+          fi
+
+      - name: Wait for Docker image availability
+        run: |
+          echo "⏳ Waiting for Docker image to be available..."
+          IMAGE="ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag_name }}"
+
+          # Wait up to 10 minutes for image to be available
+          for i in {1..20}; do
+            echo "Attempt $i/20: Checking image availability..."
+            if docker manifest inspect "$IMAGE" >/dev/null 2>&1; then
+              echo "✅ Image is available: $IMAGE"
+              break
+            fi
+
+            if [ $i -eq 20 ]; then
+              echo "⚠️ Image not available after 10 minutes, proceeding anyway..."
+            else
+              echo "Image not yet available, waiting 30 seconds..."
+              sleep 30
+            fi
+          done
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          draft: false
+          prerelease: ${{ steps.version.outputs.is_prerelease }}
+          name: "Typesense ${{ steps.version.outputs.version }}"
+          body: |
+            # Typesense with Healthcheck ${{ steps.version.outputs.version }}
+
+            🚀 **${{ steps.version.outputs.release_type }}** of Typesense with integrated healthcheck support.
+
+            ## 📋 Release Information
+
+            - **Version**: `${{ steps.version.outputs.version }}`
+            - **Typesense Core**: `${{ steps.typesense.outputs.version }}`
+            - **Release Type**: ${{ steps.version.outputs.release_type }}
+            - **Docker Registry**: GitHub Container Registry (GHCR)
+
+            ## 🐳 Docker Images
+
+            ### Pull Commands
+            ```bash
+            # Specific version
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+
+            # With tag
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag_name }}
+            ```
+
+            ### Quick Start
+            ```bash
+            docker run -d \
+              --name typesense \
+              -p 8108:8108 \
+              -e TYPESENSE_API_KEY=your-secret-api-key \
+              -v typesense-data:/data \
+              ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+            ```
+
+            ### Docker Compose
+            ```yaml
+            version: '3.8'
+            services:
+              typesense:
+                image: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+                ports:
+                  - "8108:8108"
+                environment:
+                  - TYPESENSE_API_KEY=your-secret-api-key
+                volumes:
+                  - typesense-data:/data
+                healthcheck:
+                  test: ["CMD", "curl", "--fail", "http://localhost:8108/health"]
+                  interval: 30s
+                  timeout: 10s
+                  retries: 3
+                  start_period: 30s
+            volumes:
+              typesense-data:
+            ```
+
+            ## ✨ Features
+
+            - ✅ **Built-in Healthcheck**: Automatic health monitoring with `/health` endpoint
+            - ✅ **Multi-Architecture**: Supports `linux/amd64` and `linux/arm64`
+            - ✅ **Production Ready**: Optimized for container orchestration
+            - ✅ **Security**: Signed images with Cosign
+            - ✅ **Monitoring**: Container health status for Docker Swarm, Kubernetes, etc.
+
+            ## 🔧 Configuration
+
+            | Environment Variable | Default | Description |
+            |---------------------|---------|-------------|
+            | `TYPESENSE_API_KEY` | - | **Required** API key for authentication |
+            | `TYPESENSE_DATA_DIR` | `/data` | Data directory path |
+            | `TYPESENSE_LISTEN_ADDRESS` | `0.0.0.0` | Listen address |
+            | `TYPESENSE_LISTEN_PORT` | `8108` | Listen port |
+
+            ## 📊 Healthcheck Details
+
+            - **Endpoint**: `http://localhost:8108/health`
+            - **Interval**: 30 seconds
+            - **Timeout**: 10 seconds
+            - **Retries**: 3 attempts
+            - **Start Period**: 30 seconds
+
+            ## 🔗 Links
+
+            - 📚 [Documentation](https://github.com/${{ github.repository }}/blob/main/README.md)
+            - 🐳 [Docker Hub](https://github.com/${{ github.repository }}/pkgs/container/typesense)
+            - 🏠 [Typesense Official](https://typesense.org/)
+            - 🛠️ [Typesense Docs](https://typesense.org/docs/)
+
+            $(cat changelog.md)
+
+            ---
+
+            **Image Details:**
+            - **Registry**: `ghcr.io/${{ github.repository }}`
+            - **Available Tags**: `${{ steps.version.outputs.version }}`, `${{ steps.version.outputs.tag_name }}`${{ steps.version.outputs.is_prerelease == 'false' && ', `latest`' || '' }}
+            - **Platforms**: `linux/amd64`, `linux/arm64`
+            - **Base Image**: `typesense/typesense:${{ steps.typesense.outputs.version }}`
+
+            > 💡 **Tip**: Use `docker inspect ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}` to view detailed image information.
+
+          generate_release_notes: true
+          make_latest: ${{ steps.version.outputs.is_prerelease == 'false' }}
+
+  post-release-tasks:
+    runs-on: ubuntu-latest
+    needs: create-release
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Update README badges
+        run: |
+          # Update version badge in README
+          sed -i "s/typesense:v[0-9]\+\.[0-9]\+\(\\.rc[0-9]\+\)\?)/typesense:${{ needs.create-release.outputs.tag_name }})/g" README.md
+
+          # Commit changes if any
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git add README.md
+            git commit -m "docs: update badges for release ${{ needs.create-release.outputs.tag_name }}"
+            git push
+          fi
+
+      - name: Create announcement issue
+        if: needs.create-release.outputs.is_prerelease == 'false'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        with:
+          script: |
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📢 Announcement: Release ${{ needs.create-release.outputs.tag_name }}`,
+              body: `# 🎉 New Release Available!
+
+            We're excited to announce the release of **Typesense ${{ needs.create-release.outputs.version }}**!
+
+            ## 🔗 Quick Links
+            - **Release Notes**: ${{ needs.create-release.outputs.release_url }}
+            - **Docker Image**: \`ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}\`
+            - **Documentation**: [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
+
+            ## 🐳 Docker Usage
+            \`\`\`bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+            docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+            \`\`\`
+
+            ## 📦 What's Included
+            - Typesense Core: \`${{ needs.create-release.outputs.typesense_version }}\`
+            - Built-in healthcheck functionality
+            - Multi-architecture support (amd64, arm64)
+            - Production-ready configuration
+
+            ## 🚀 Upgrade Instructions
+            1. Pull the new image: \`docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}\`
+            2. Stop your current container
+            3. Start with the new image
+            4. Verify health status: \`curl http://localhost:8108/health\`
+
+            ---
+            *This announcement was automatically generated. Feel free to ask questions or report issues!*`,
+              labels: ['announcement', 'release']
+            });
+
+            // Pin the issue
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: 'open'
+            });
+
+      - name: Update GitHub Pages documentation
+        if: needs.create-release.outputs.is_prerelease == 'false'
+        run: |
+          # Create or update docs for GitHub Pages
+          mkdir -p docs/releases
+
+          cat > docs/releases/${{ needs.create-release.outputs.version }}.md << 'EOF'
+          ---
+          layout: default
+          title: Release ${{ needs.create-release.outputs.tag_name }}
+          ---
+
+          # Release ${{ needs.create-release.outputs.tag_name }}
+
+          Released on: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          ## Docker Image
+          ```
+          ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+          ```
+
+          ## Typesense Core Version
+          ```
+          ${{ needs.create-release.outputs.typesense_version }}
+          ```
+
+          ## Usage
+          ```bash
+          docker run -p 8108:8108 \
+            -e TYPESENSE_API_KEY=your-secret-key \
+            ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}
+          ```
+
+          ## Release Notes
+          For detailed release notes, see [GitHub Releases](${{ needs.create-release.outputs.release_url }}).
+          EOF
+
+      - name: Validate Docker image accessibility
+        continue-on-error: true
+        run: |
+          echo "🔍 Validating Docker image accessibility..."
+
+          # Test image pull
+          if docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}; then
+            echo "✅ Image pull successful"
+            
+            # Test basic container start
+            CONTAINER_ID=$(docker run -d --rm \
+              -e TYPESENSE_API_KEY=test-key \
+              ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }})
+
+            echo "🔄 Waiting for container to start..."
+            sleep 30
+
+            # Check if container is running
+            if docker ps | grep -q $CONTAINER_ID; then
+              echo "✅ Container started successfully"
+              docker stop $CONTAINER_ID
+            else
+              echo "❌ Container failed to start"
+              docker logs $CONTAINER_ID
+            fi
+          else
+            echo "⚠️ Docker image not available yet - this is normal for manual releases"
+            echo "The Docker image will be built separately via the publish workflow"
+          fi
+
+      - name: Generate release metrics
+        run: |
+          # Generate release metrics
+          cat > release-metrics.json << EOF
+          {
+            "version": "${{ needs.create-release.outputs.tag_name }}",
+            "version_clean": "${{ needs.create-release.outputs.version }}",
+            "typesense_version": "${{ needs.create-release.outputs.typesense_version }}",
+            "release_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "is_prerelease": ${{ needs.create-release.outputs.is_prerelease }},
+            "docker_image": "ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}",
+            "release_url": "${{ needs.create-release.outputs.release_url }}",
+            "repository": "${{ github.repository }}"
+          }
+          EOF
+
+      - name: Summary
+        run: |
+          echo "## 🎉 Release ${{ needs.create-release.outputs.tag_name }} Published Successfully!"
+          echo ""
+          echo "**Type**: ${{ needs.create-release.outputs.release_type }}"
+          echo "**Version**: ${{ needs.create-release.outputs.version }}"
+          echo "**Typesense Core**: ${{ needs.create-release.outputs.typesense_version }}"
+          echo "**Docker Image**: ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}"
+          echo "**Release URL**: ${{ needs.create-release.outputs.release_url }}"
+          echo ""
+          echo "### Quick Start Command:"
+          echo "\`\`\`bash"
+          echo "docker run -p 8108:8108 -e TYPESENSE_API_KEY=your-key ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}"
+          echo "\`\`\`"

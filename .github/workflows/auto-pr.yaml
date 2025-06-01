@@ -1,0 +1,183 @@
+name: Auto Create Pull Request
+
+on:
+  push:
+    branches:
+      - '*'
+      - '!main'
+      - '!master'
+
+jobs:
+  auto-create-pr:
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if PR already exists
+        id: check-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+
+          # Check if PR already exists for this branch
+          PR_EXISTS=$(gh pr list --head "$BRANCH_NAME" --json number --jq '. | length')
+
+          echo "pr_exists=$PR_EXISTS" >> $GITHUB_OUTPUT
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Get branch info
+        id: branch-info
+        if: steps.check-pr.outputs.pr_exists == '0'
+        run: |
+          BRANCH_NAME="${{ steps.check-pr.outputs.branch_name }}"
+
+          # Generate PR title based on branch name
+          if [[ "$BRANCH_NAME" =~ ^feature/ ]]; then
+            PR_TITLE="✨ Feature: ${BRANCH_NAME#feature/}"
+            PR_LABEL="enhancement"
+          elif [[ "$BRANCH_NAME" =~ ^fix/ ]]; then
+            PR_TITLE="🐛 Fix: ${BRANCH_NAME#fix/}"
+            PR_LABEL="bug"
+          elif [[ "$BRANCH_NAME" =~ ^hotfix/ ]]; then
+            PR_TITLE="🚨 Hotfix: ${BRANCH_NAME#hotfix/}"
+            PR_LABEL="hotfix"
+          elif [[ "$BRANCH_NAME" =~ ^release/ ]]; then
+            PR_TITLE="🚀 Release: ${BRANCH_NAME#release/}"
+            PR_LABEL="release"
+          elif [[ "$BRANCH_NAME" =~ ^docs/ ]]; then
+            PR_TITLE="📚 Docs: ${BRANCH_NAME#docs/}"
+            PR_LABEL="documentation"
+          else
+            PR_TITLE="🔧 Update: $BRANCH_NAME"
+            PR_LABEL="enhancement"
+          fi
+
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "pr_label=$PR_LABEL" >> $GITHUB_OUTPUT
+
+      - name: Get recent commits
+        id: commits
+        if: steps.check-pr.outputs.pr_exists == '0'
+        run: |
+          # Get commits that are in this branch but not in main
+          COMMITS=$(git log --oneline main..HEAD --reverse | head -10)
+
+          if [ -z "$COMMITS" ]; then
+            COMMITS="- Initial commit"
+          else
+            COMMITS=$(echo "$COMMITS" | sed 's/^/- /')
+          fi
+
+          # Escape newlines for GitHub output
+          COMMITS_ESCAPED=$(echo "$COMMITS" | sed ':a;N;$!ba;s/\n/\\n/g')
+          echo "commits=$COMMITS_ESCAPED" >> $GITHUB_OUTPUT
+
+      - name: Create Pull Request
+        if: steps.check-pr.outputs.pr_exists == '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="${{ steps.check-pr.outputs.branch_name }}"
+          PR_TITLE="${{ steps.branch-info.outputs.pr_title }}"
+          PR_LABEL="${{ steps.branch-info.outputs.pr_label }}"
+          COMMITS="${{ steps.commits.outputs.commits }}"
+
+          # Create PR body
+          cat > pr_body.md << EOF
+          ## 📋 Description
+
+          This pull request was automatically created for branch \`$BRANCH_NAME\`.
+
+          ## 📝 Changes
+
+          $(echo -e "$COMMITS")
+
+          ## 🔍 Type of Change
+
+          - [ ] 🐛 Bug fix (non-breaking change which fixes an issue)
+          - [ ] ✨ New feature (non-breaking change which adds functionality)
+          - [ ] 💥 Breaking change (fix or feature that would cause existing functionality to not work as expected)
+          - [ ] 📚 Documentation update
+          - [ ] 🔧 Maintenance/refactoring
+
+          ## ✅ Checklist
+
+          - [ ] My code follows the project's style guidelines
+          - [ ] I have performed a self-review of my code
+          - [ ] I have commented my code, particularly in hard-to-understand areas
+          - [ ] I have made corresponding changes to the documentation
+          - [ ] My changes generate no new warnings
+          - [ ] I have added tests that prove my fix is effective or that my feature works
+          - [ ] New and existing unit tests pass locally with my changes
+
+          ## 🧪 Testing
+
+          - [ ] Tests have been added/updated
+          - [ ] All tests are passing
+          - [ ] Manual testing has been performed
+
+          ## 📸 Screenshots (if applicable)
+
+          <!-- Add screenshots here if UI changes -->
+
+          ## 🔗 Related Issues
+
+          <!-- Link related issues here -->
+          Closes #
+
+          ---
+
+          **Auto-generated PR** - Please review and update this description as needed.
+          EOF
+
+          # Create the pull request
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body-file pr_body.md \
+            --base main \
+            --head "$BRANCH_NAME" || {
+            echo "Failed to create PR with labels, trying without labels..."
+            gh pr create \
+              --title "$PR_TITLE" \
+              --body-file pr_body.md \
+              --base main \
+              --head "$BRANCH_NAME"
+          }
+
+          # Try to add labels after PR creation (if they exist)
+          echo "Attempting to add labels..."
+          gh pr edit "$BRANCH_NAME" --add-label "$PR_LABEL" 2>/dev/null || echo "Warning: Could not add label '$PR_LABEL' (label may not exist)"
+          gh pr edit "$BRANCH_NAME" --add-label "auto-created" 2>/dev/null || echo "Warning: Could not add label 'auto-created' (label may not exist)"
+
+      - name: Add comment to existing PR
+        if: steps.check-pr.outputs.pr_exists != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="${{ steps.check-pr.outputs.branch_name }}"
+
+          # Add comment to existing PR
+          gh pr comment "$BRANCH_NAME" --body "🔄 **Auto-update**: New commits pushed to this branch at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+      - name: Summary
+        run: |
+          BRANCH_NAME="${{ steps.check-pr.outputs.branch_name }}"
+          PR_EXISTS="${{ steps.check-pr.outputs.pr_exists }}"
+
+          if [ "$PR_EXISTS" = "0" ]; then
+            echo "✅ Pull request created successfully for branch: $BRANCH_NAME"
+            echo "🔗 PR Title: ${{ steps.branch-info.outputs.pr_title }}"
+            echo "🏷️ Label: ${{ steps.branch-info.outputs.pr_label }}"
+          else
+            echo "ℹ️ Pull request already exists for branch: $BRANCH_NAME"
+            echo "💬 Added update comment to existing PR"
+          fi

@@ -1,0 +1,284 @@
+version: "3"
+
+vars:
+  TEST_API_KEY: API_KEY_TEST
+  DEV_API_KEY: API_KEY_DEV
+  TEST_TIMEOUT: 30
+  TIMESTAMP:
+    sh: date +%s
+  TEST_CONTAINER_NAME: typesense-test-{{.TIMESTAMP}}
+  DEV_CONTAINER_NAME: typesense-dev
+
+tasks:
+  test:
+    desc: Run all tests
+    deps: [test-api, test-performance]
+
+  build-test-container:
+    desc: Build the test container
+    cmds:
+      - echo "Building test container..."
+      - docker build -t typesense:test .
+
+  start-test-container:
+    desc: Start the test container
+    deps: [build-test-container]
+    cmds:
+      - |
+        CONTAINER_ID=$(docker run --rm -d \
+          --name {{.TEST_CONTAINER_NAME}} \
+          -p 8108:8108 \
+          --health-cmd="curl -f http://localhost:8108/health || exit 1" \
+          --health-interval=1s \
+          --health-timeout=1s \
+          --health-retries=3 \
+          -e TYPESENSE_API_KEY={{.TEST_API_KEY}} \
+          typesense:test \
+          --data-dir /tmp \
+          --api-key={{.TEST_API_KEY}})
+        echo "Container ID: $CONTAINER_ID"
+
+  wait-for-health:
+    desc: Wait for container to become healthy
+    vars:
+      CONTAINER_ID:
+        sh: docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}"
+    cmds:
+      - |
+        echo "Waiting for container to become healthy..."
+        COUNTER=0
+        while [ $COUNTER -lt {{.TEST_TIMEOUT}} ]; do
+          HEALTH_STATUS=$(docker inspect --format='{{`{{.State.Health.Status}}`}}' {{.CONTAINER_ID}} 2>/dev/null || echo "unknown")
+          echo "Health status: $HEALTH_STATUS ($COUNTER/{{.TEST_TIMEOUT}})"
+          if [ "$HEALTH_STATUS" = "healthy" ]; then
+            exit 0
+          fi
+          sleep 1
+          COUNTER=$((COUNTER+1))
+        done
+        echo "Container did not become healthy in {{.TEST_TIMEOUT}} seconds"
+        echo "Container logs:"
+        docker logs {{.CONTAINER_ID}} 2>/dev/null > /tmp/typesense-test-$(date +%s).log || echo "Could not get container logs"
+        cat /tmp/typesense-test-*.log
+        docker stop {{.CONTAINER_ID}} 2>/dev/null || true
+        exit 1
+
+  test-api:
+    desc: Run API tests
+    deps: [start-test-container]
+    cmds:
+      - task: wait-for-health
+      - echo "Running API tests..."
+      - ./test_api.sh {{.TEST_API_KEY}}
+      - task: stop-test-container
+
+  test-performance:
+    desc: Run performance tests
+    deps: [start-test-container]
+    cmds:
+      - task: wait-for-health
+      - echo "Running performance tests..."
+      - chmod +x ./test_performance.sh
+      - ./test_performance.sh {{.TEST_API_KEY}}
+      - task: stop-test-container
+
+  stop-test-container:
+    desc: Stop the test container
+    cmds:
+      - |
+        CONTAINER_ID=$(docker ps -q --filter "name={{.TEST_CONTAINER_NAME}}")
+        if [ ! -z "$CONTAINER_ID" ]; then
+          echo "Stopping test container..."
+          docker stop $CONTAINER_ID
+        fi
+
+  clean:
+    desc: Clean up test containers
+    cmds:
+      - echo "Cleaning up test containers..."
+      - docker ps -a --filter "name=typesense-test" --format "{{`{{.ID}}`}}" | xargs -r docker rm -f
+
+  # Development pipeline
+  dev:
+    desc: Start development environment
+    cmds:
+      - echo "Starting development environment..."
+      - docker ps -q --filter "name={{.DEV_CONTAINER_NAME}}" | xargs -r docker rm -f
+      - mkdir -p ./data
+      - |
+        docker run --rm -d \
+          --name {{.DEV_CONTAINER_NAME}} \
+          -p 8108:8108 \
+          -v $(pwd)/data:/data \
+          -e TYPESENSE_API_KEY={{.DEV_API_KEY}} \
+          typesense:test \
+          --data-dir /data \
+          --api-key={{.DEV_API_KEY}}
+      - echo "Development container started. API is available at http://localhost:8108"
+      - echo "Use API key is {{.DEV_API_KEY}}"
+
+  dev-stop:
+    desc: Stop development environment
+    cmds:
+      - echo "Stopping development environment..."
+      - docker stop {{.DEV_CONTAINER_NAME}} || true
+
+  # Backup pipeline
+  backup:
+    desc: Backup data from running instance
+    cmds:
+      - |
+        BACKUP_DIR="./backups/$(date +%Y-%m-%d)"
+        mkdir -p "$BACKUP_DIR"
+        echo "Backing up data to $BACKUP_DIR/typesense-backup.tar.gz"
+        if docker ps -q --filter "name={{.DEV_CONTAINER_NAME}}" | grep -q .; then
+          docker exec {{.DEV_CONTAINER_NAME}} tar -czf - /data | cat > "$BACKUP_DIR/typesense-backup.tar.gz"
+          echo "Backup completed"
+        else
+          echo "Development container is not running. Start it with 'task dev' first."
+          exit 1
+        fi
+
+  # Typesense version update pipeline
+  update-typesense:
+    desc: Update Typesense version
+    vars:
+      version: ''
+    cmds:
+      - echo "Updating Typesense to version {{.version}}..."
+      - sed -i '' "s|typesense/typesense:[0-9.rc]*|typesense/typesense:{{.version}}|g" Dockerfile
+      - task: build-test-container
+      - task: test
+      - echo "Successfully updated to Typesense {{.version}}"
+
+  # Lint pipeline using pre-commit
+  lint:
+    desc: Run linters
+    cmds:
+      - echo "Running linters..."
+      - pre-commit run --all-files
+
+  validate-badges:
+    desc: Validate README badges
+    cmds:
+      - echo "Validating badges..."
+      - chmod +x ./scripts/validate-badges.sh
+      - ./scripts/validate-badges.sh -v
+
+  # Documentation generation pipeline
+  docs:
+    desc: Generate documentation
+    cmds:
+      - echo "Generating documentation..."
+      - |
+        mkdir -p ./docs
+        cat > ./docs/README.md << EOF
+        # Typesense Docker Image Documentation
+
+        ## Available Commands
+
+        $(task --list | grep -v "task: " | sed 's/^\* /### /')
+        EOF
+      - echo "Documentation generated in ./docs/README.md"
+
+  # Release management pipeline
+  validate-version:
+    desc: Validate current version in Dockerfile
+    cmds:
+      - echo "Validating Typesense version..."
+      - ./scripts/validate-version.sh -v
+
+  check-version:
+    desc: Check version and Docker image availability
+    cmds:
+      - echo "Checking version and Docker image..."
+      - ./scripts/validate-version.sh -v -c
+
+  create-stable:
+    desc: "Create stable release (usage: task create-stable VERSION=29.0)"
+    vars:
+      VERSION: ""
+    cmds:
+      - |
+        if [ -z "{{.VERSION}}" ]; then
+          echo "Error: VERSION is required. Usage: task create-stable VERSION=29.0"
+          exit 1
+        fi
+      - ./scripts/create-release.sh stable {{.VERSION}}
+
+  create-rc:
+    desc: "Create release candidate (usage: task create-rc VERSION=29.0 [RC=1])"
+    vars:
+      VERSION: ""
+      RC: ""
+    cmds:
+      - |
+        if [ -z "{{.VERSION}}" ]; then
+          echo "Error: VERSION is required. Usage: task create-rc VERSION=29.0 [RC=1]"
+          exit 1
+        fi
+      - |
+        if [ -n "{{.RC}}" ]; then
+          ./scripts/create-release.sh rc {{.VERSION}} {{.RC}}
+        else
+          ./scripts/create-release.sh rc {{.VERSION}}
+        fi
+
+  auto-release:
+    desc: Auto-detect and create appropriate release
+    cmds:
+      - ./scripts/create-release.sh auto
+
+  list-releases:
+    desc: List recent releases and current version
+    cmds:
+      - ./scripts/create-release.sh list
+
+  dry-run-stable:
+    desc: "Preview stable release creation (usage: task dry-run-stable VERSION=29.0)"
+    vars:
+      VERSION: ""
+    cmds:
+      - |
+        if [ -z "{{.VERSION}}" ]; then
+          echo "Error: VERSION is required. Usage: task dry-run-stable VERSION=29.0"
+          exit 1
+        fi
+      - ./scripts/create-release.sh stable {{.VERSION}} --dry-run
+
+  dry-run-rc:
+    desc: "Preview RC release creation (usage: task dry-run-rc VERSION=29.0)"
+    vars:
+      VERSION: ""
+    cmds:
+      - |
+        if [ -z "{{.VERSION}}" ]; then
+          echo "Error: VERSION is required. Usage: task dry-run-rc VERSION=29.0"
+          exit 1
+        fi
+      - ./scripts/create-release.sh rc {{.VERSION}} --dry-run
+
+  release-help:
+    desc: Show release management help
+    cmds:
+      - echo "Release Management Commands:"
+      - echo ""
+      - echo "Basic Commands:"
+      - echo "  task validate-version    - Validate current Dockerfile version"
+      - echo "  task check-version       - Check version and Docker image availability"
+      - echo "  task list-releases       - List recent releases"
+      - echo ""
+      - echo "Release Creation:"
+      - echo "  task create-stable VERSION=29.0     - Create stable release"
+      - echo "  task create-rc VERSION=29.0 [RC=1]  - Create release candidate"
+      - echo "  task auto-release                    - Auto-detect and create release"
+      - echo ""
+      - echo "Preview (Dry Run):"
+      - echo "  task dry-run-stable VERSION=29.0    - Preview stable release"
+      - echo "  task dry-run-rc VERSION=29.0        - Preview RC release"
+      - echo ""
+      - echo "Examples:"
+      - echo "  task create-stable VERSION=29.0     - Create v29.0 stable release"
+      - echo "  task create-rc VERSION=29.0         - Create v29.0.rc1 (auto-increment)"
+      - echo "  task create-rc VERSION=29.0 RC=2    - Create v29.0.rc2 (specific RC)"
+      - echo "  task auto-release                    - Auto-detect from Dockerfile"

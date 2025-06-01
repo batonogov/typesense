@@ -1,0 +1,29 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # u0417u0430u043fu0443u0441u043a u043au0430u0436u0434u043eu0435 u0432u043eu0441u043au0440u0435u0441u0435u043du044cu0435 u0432 00:00 UTC
+  workflow_dispatch:
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Build image
+        run: docker build -t typesense:local .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@26d71e622b84d103f86fb33a5a42c558e11f4ae0 # master
+        with:
+          image-ref: 'typesense:local'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3
+        with:
+          sarif_file: 'trivy-results.sarif'
