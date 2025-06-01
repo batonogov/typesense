@@ -93,8 +93,8 @@ repos:
   - repo: local
     hooks:
       - id: task-test
-        name: Run Typesense tests
-        entry: task test
+        name: Run Typesense quick tests
+        entry: task test-quick
         language: system
         pass_filenames: false
         always_run: true

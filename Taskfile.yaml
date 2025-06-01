@@ -16,6 +16,11 @@ tasks:
       - task: test-api
       - task: test-performance
 
+  test-quick:
+    desc: Run quick tests (API only, for pre-commit)
+    cmds:
+      - task: test-api
+
   build-test-container:
     desc: Build the test container
     cmds:
