@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  typesense:
+    image: ghcr.io/batonogov/typesense:latest
+    container_name: typesense-dev
+    ports:
+      - "8108:8108"
+    environment:
+      - TYPESENSE_API_KEY=dev-api-key-12345
+      - TYPESENSE_DATA_DIR=/data
+      - TYPESENSE_LISTEN_ADDRESS=0.0.0.0
+      - TYPESENSE_LISTEN_PORT=8108
+      - TYPESENSE_ENABLE_CORS=true
+    volumes:
+      - ./data:/data
+      - ./logs:/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8108/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    command: >
+      --data-dir /data
+      --api-key=dev-api-key-12345
+      --enable-cors
+      --cors-domains=*
+      --log-level=INFO
+    networks:
+      - typesense-dev
+
+  # Optional: Admin dashboard for development
+  adminer:
+    image: adminer:latest
+    container_name: adminer-dev
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=typesense
+    networks:
+      - typesense-dev
+    profiles:
+      - admin
+
+  # Optional: Test data generator
+  test-client:
+    image: curlimages/curl:latest
+    container_name: typesense-test-client
+    depends_on:
+      typesense:
+        condition: service_healthy
+    volumes:
+      - ./test-data:/test-data
+    command: |
+      sh -c "
+        echo 'Waiting for Typesense to be ready...'
+        sleep 10
+        echo 'Creating test collection...'
+        curl -X POST \
+          -H 'X-TYPESENSE-API-KEY: dev-api-key-12345' \
+          -H 'Content-Type: application/json' \
+          -d '{
+            \"name\": \"books\",
+            \"fields\": [
+              {\"name\": \"title\", \"type\": \"string\"},
+              {\"name\": \"authors\", \"type\": \"string[]\"},
+              {\"name\": \"publication_year\", \"type\": \"int32\"},
+              {\"name\": \"ratings_count\", \"type\": \"int32\"},
+              {\"name\": \"average_rating\", \"type\": \"float\"}
+            ]
+          }' \
+          http://typesense:8108/collections
+        echo 'Test collection created!'
+      "
+    networks:
+      - typesense-dev
+    profiles:
+      - test
+
+networks:
+  typesense-dev:
+    driver: bridge
+
+volumes:
+  typesense-data:
+    driver: local

@@ -1,0 +1,206 @@
+version: '3.8'
+
+services:
+  typesense:
+    image: ghcr.io/batonogov/typesense:latest
+    container_name: typesense-prod
+    ports:
+      - "8108:8108"
+    environment:
+      - TYPESENSE_DATA_DIR=/data
+      - TYPESENSE_LISTEN_ADDRESS=0.0.0.0
+      - TYPESENSE_LISTEN_PORT=8108
+      - TYPESENSE_API_KEY_FILE=/run/secrets/typesense_api_key
+      - TYPESENSE_LOG_LEVEL=INFO
+    volumes:
+      - typesense_data:/data:rw
+      - typesense_logs:/logs:rw
+    secrets:
+      - typesense_api_key
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--max-time", "5", "http://localhost:8108/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+      restart_policy:
+        condition: unless-stopped
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        labels: "service=typesense,env=production"
+    command: >
+      --data-dir /data
+      --api-key-file=/run/secrets/typesense_api_key
+      --max-memory-ratio=0.8
+      --num-memory-shards=1
+      --log-level=INFO
+      --enable-search-analytics=false
+    networks:
+      - typesense-network
+    user: "1001:1001"
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      memlock:
+        soft: -1
+        hard: -1
+
+  # Nginx reverse proxy for SSL termination and rate limiting
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: typesense-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./ssl:/etc/ssl/certs:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      typesense:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - typesense-network
+      - web
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - proxy
+
+  # Optional: Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: typesense-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - typesense-network
+      - monitoring
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: typesense-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_admin_password
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    secrets:
+      - grafana_admin_password
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - monitoring
+      - web
+    profiles:
+      - monitoring
+
+  # Optional: Log aggregation
+  fluentd:
+    image: fluent/fluentd:v1.16-1
+    container_name: typesense-fluentd
+    volumes:
+      - ./logging/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - fluentd_logs:/fluentd/log
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    restart: unless-stopped
+    networks:
+      - typesense-network
+    profiles:
+      - logging
+
+# Production secrets - use external secrets in real deployment
+secrets:
+  typesense_api_key:
+    external: true
+    name: typesense_api_key_v1
+  grafana_admin_password:
+    external: true
+    name: grafana_admin_password_v1
+
+# Production volumes with specific drivers
+volumes:
+  typesense_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/typesense/data
+  typesense_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/typesense/logs
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  nginx_logs:
+    driver: local
+  fluentd_logs:
+    driver: local
+
+# Production networks
+networks:
+  typesense-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+  web:
+    external: true
+  monitoring:
+    driver: bridge
+    internal: true
