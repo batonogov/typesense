@@ -16,7 +16,7 @@ jobs:
         run: docker build -t typesense:local .
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@26d71e622b84d103f86fb33a5a42c558e11f4ae0 # master
+        uses: aquasecurity/trivy-action@76071ef0d7ec797419534a183b498b4d6366cf37 # master
         with:
           image-ref: 'typesense:local'
           format: 'sarif'
@@ -24,6 +24,6 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3
+        uses: github/codeql-action/upload-sarif@fca7ace96b7d713c7035871441bd52efbe39e27e # v3
         with:
           sarif_file: 'trivy-results.sarif'
