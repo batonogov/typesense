@@ -83,7 +83,7 @@ repos:
 
   # Security for Docker and dependencies
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.3
+    rev: 1.8.5
     hooks:
       - id: bandit
         args: ["-r", "."]
