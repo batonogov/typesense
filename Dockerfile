@@ -1,8 +1,10 @@
 # Use official image
 FROM typesense/typesense:29.0
 
-# Copy curl utility from another image
-COPY --from=ghcr.io/tarampampam/curl:8.15.0 /bin/curl /bin/curl
+# Install curl
+RUN apt-get update -qq && \
+    apt-get install -qq -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
 
 # Information
 LABEL maintainer="Fedor Batonogov <f.batonogov@yandex.ru>"
