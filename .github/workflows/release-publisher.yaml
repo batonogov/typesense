@@ -106,7 +106,7 @@ jobs:
 
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2
+        uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag_name }}
           draft: false
@@ -242,7 +242,7 @@ jobs:
 
       - name: Create announcement issue
         if: needs.create-release.outputs.is_prerelease == 'false'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
         with:
           script: |
             const title = `📢 Announcement: Release ${{ needs.create-release.outputs.tag_name }}`;
