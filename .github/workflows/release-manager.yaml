@@ -162,7 +162,7 @@ jobs:
 
       - name: Trigger Release Publisher
         if: steps.tag.outputs.created == 'true'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
         with:
           script: |
             const tagName = '${{ steps.tag.outputs.name }}';
@@ -187,7 +187,7 @@ jobs:
 
       - name: Trigger Publish Workflow
         if: steps.tag.outputs.created == 'true'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
         with:
           script: |
             const tagName = '${{ steps.tag.outputs.name }}';
@@ -284,7 +284,7 @@ jobs:
           echo "- Please report any issues found during testing" >> rc_changelog.md
 
       - name: Create RC testing issue
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7
         with:
           script: |
             const fs = require('fs');
