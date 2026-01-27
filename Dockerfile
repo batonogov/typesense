@@ -1,5 +1,5 @@
 # Use official image
-FROM typesense/typesense:29.0
+FROM typesense/typesense:30.0
 
 # Install curl
 RUN apt-get update -qq && \
