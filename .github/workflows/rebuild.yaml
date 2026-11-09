@@ -34,18 +34,23 @@ jobs:
       packages: write
     outputs:
       image_ref: ${{ steps.image.outputs.ref }}
+      source_digest: ${{ steps.source_image.outputs.digest }}
       source_sha: ${{ steps.validate.outputs.source_sha }}
       version: ${{ steps.validate.outputs.version }}
     steps:
-      - name: Verify protected production environment
+      - name: Verify production deployment policy
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          REVIEWER_RULES=$(gh api "repos/${GITHUB_REPOSITORY}/environments/production" \
-            --jq '[.protection_rules[] | select(.type == "required_reviewers")] | length')
-          if [[ "$REVIEWER_RULES" -lt 1 ]]; then
-            echo "The production environment must require reviewer approval" >&2
+          POLICY_COUNT=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/production/deployment_branch_policies" \
+            --jq '[.branch_policies[] | select(.name == "main")] | length')
+          TOTAL_POLICIES=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/production/deployment_branch_policies" \
+            --jq '.branch_policies | length')
+          if [[ "$POLICY_COUNT" -ne 1 || "$TOTAL_POLICIES" -ne 1 ]]; then
+            echo "The production environment must allow only the main branch" >&2
             exit 1
           fi
 
@@ -122,9 +127,30 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Verify existing release image
+        id: source_image
         env:
           IMAGE_TAG: ${{ inputs.image_tag }}
-        run: docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          SOURCE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
+            awk '/^Digest:/ {print $2; exit}')
+          if [[ ! "$SOURCE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve the existing release digest" >&2
+            exit 1
+          fi
+
+          if [[ "$UPDATE_LATEST" == "true" ]]; then
+            LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
+              awk '/^Digest:/ {print $2; exit}')
+            if [[ "$LATEST_DIGEST" != "$SOURCE_DIGEST" ]]; then
+              echo "Docker latest and $IMAGE_TAG point to different digests" >&2
+              exit 1
+            fi
+          fi
+
+          echo "digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -271,7 +297,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   promote:
-    name: Approve and promote candidate
+    name: Promote verified candidate
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -299,6 +325,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          SOURCE_DIGEST: ${{ needs.verify.outputs.source_digest }}
           UPDATE_LATEST: ${{ inputs.update_latest }}
         run: |
           set -euo pipefail
@@ -310,10 +337,25 @@ jobs:
             echo "Image tag must reference an existing stable GitHub release" >&2
             exit 1
           fi
+
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          CURRENT_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
+            awk '/^Digest:/ {print $2; exit}')
+          if [[ "$CURRENT_DIGEST" != "$SOURCE_DIGEST" ]]; then
+            echo "$IMAGE_TAG was refreshed during verification; skipping stale promotion" >&2
+            exit 1
+          fi
+
           if [[ "$UPDATE_LATEST" == "true" ]]; then
             LATEST_TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
             if [[ "$LATEST_TAG" != "$IMAGE_TAG" ]]; then
               echo "Refusing to move latest from $LATEST_TAG to $IMAGE_TAG" >&2
+              exit 1
+            fi
+            LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
+              awk '/^Digest:/ {print $2; exit}')
+            if [[ "$LATEST_DIGEST" != "$SOURCE_DIGEST" ]]; then
+              echo "Docker latest changed during verification; skipping stale promotion" >&2
               exit 1
             fi
           fi

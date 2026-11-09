@@ -244,21 +244,23 @@ cosign verify ghcr.io/batonogov/typesense:v29.0 \
 
 ### Vulnerability Scanning
 
-- Weekly Trivy scans
-- Results in Security tab
-- Fail on HIGH severity issues
+- Daily Trivy scans of the published `latest` image on AMD64 and ARM64.
+- SARIF results are uploaded to the Security tab.
+- Fixable HIGH or CRITICAL findings automatically start Rebuild.
 
 ### Security Rebuilds
 
-Use the manual **Rebuild** workflow to refresh an existing stable image without
-moving its Git tag or recreating the GitHub release.
+**Security Scan** automatically starts **Rebuild** with the current `main` SHA
+and latest stable release tag. Rebuild refreshes the existing image without
+moving its Git tag or recreating the GitHub release. No manual approval is
+required after the candidate passes all checks.
 
 Before the first run, create a `production` environment in repository settings
-with required reviewers and restrict deployments to `main`. The workflow checks
-that required reviewers are configured before building anything. The environment
-approval covers the separate promotion job; candidate verification runs first.
+and add a deployment branch policy restricted to `main`. Required reviewers are
+not needed for the automatic flow. Rebuild verifies this policy before building
+anything, so it cannot silently create and use an unrestricted environment.
 
-Get the current reviewed source SHA and start the workflow:
+To start a rebuild manually, get the current reviewed source SHA and run:
 
 ```bash
 SOURCE_SHA=$(gh api repos/batonogov/typesense/commits/main --jq .sha)
@@ -284,6 +286,8 @@ The workflow:
   Every resulting tag digest is checked.
 - Serializes promotion with the normal Publish workflow and rechecks the latest
   GitHub release immediately before moving Docker `latest`.
+- Rejects stale candidates if another rebuild or publisher refreshes the source
+  release tags while verification is running.
 - Captures every target state before the first mutation and records previous
   tag digests and rollback commands in the promotion log. Operational inspection
   errors abort promotion instead of being treated as missing tags.
