@@ -273,7 +273,7 @@ jobs:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
         run: |
           trivy image \
-            --platform linux/arm64/v8 \
+            --platform linux/arm64 \
             --image-src remote \
             --format table \
             --severity CRITICAL,HIGH \

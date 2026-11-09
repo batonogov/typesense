@@ -85,7 +85,7 @@ jobs:
           }
 
           scan_platform linux/amd64 trivy-amd64.sarif
-          scan_platform linux/arm64/v8 trivy-arm64.sarif
+          scan_platform linux/arm64 trivy-arm64.sarif
 
       - name: Upload AMD64 scan results
         if: always() && hashFiles('trivy-amd64.sarif') != ''
