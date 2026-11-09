@@ -1,0 +1,467 @@
+name: Rebuild
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Full 40-character commit SHA from main history'
+        required: true
+        type: string
+      image_tag:
+        description: 'Existing stable release tag to refresh (for example, v30.2)'
+        required: true
+        type: string
+      update_latest:
+        description: 'Also update latest (only for the latest GitHub release)'
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  verify:
+    name: Build and verify candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.image.outputs.ref }}
+      source_digest: ${{ steps.source_image.outputs.digest }}
+      source_sha: ${{ steps.validate.outputs.source_sha }}
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - name: Verify production deployment policy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POLICY_COUNT=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/production/deployment_branch_policies" \
+            --jq '[.branch_policies[] | select(.name == "main")] | length')
+          TOTAL_POLICIES=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/environments/production/deployment_branch_policies" \
+            --jq '.branch_policies | length')
+          if [[ "$POLICY_COUNT" -ne 1 || "$TOTAL_POLICIES" -ne 1 ]]; then
+            echo "The production environment must allow only the main branch" >&2
+            exit 1
+          fi
+
+      - name: Checkout selected source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate rebuild inputs
+        id: validate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA_INPUT: ${{ inputs.source_sha }}
+          IMAGE_TAG_INPUT: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$SOURCE_SHA_INPUT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Source must be a full 40-character commit SHA" >&2
+            exit 1
+          fi
+
+          ACTUAL_SHA=$(git -C source rev-parse HEAD)
+          if [[ "${ACTUAL_SHA,,}" != "${SOURCE_SHA_INPUT,,}" ]]; then
+            echo "Checked out $ACTUAL_SHA instead of $SOURCE_SHA_INPUT" >&2
+            exit 1
+          fi
+
+          if [[ ! "$IMAGE_TAG_INPUT" =~ ^v[0-9]+\.[0-9]+$ ]]; then
+            echo "Image tag must use the stable vX.Y format" >&2
+            exit 1
+          fi
+
+          VERSION="${IMAGE_TAG_INPUT#v}"
+          BASE_VERSION=$(awk '$1 == "FROM" && $2 ~ /^typesense\/typesense:/ {
+            sub(/^typesense\/typesense:/, "", $2)
+            print $2
+            exit
+          }' source/Dockerfile)
+          if [[ "$BASE_VERSION" != "$VERSION" ]]; then
+            echo "Image tag $IMAGE_TAG_INPUT does not match Typesense $BASE_VERSION in Dockerfile" >&2
+            exit 1
+          fi
+
+          if ! git -C source merge-base --is-ancestor HEAD origin/main; then
+            echo "The selected commit is not part of main history" >&2
+            exit 1
+          fi
+
+          read -r IS_DRAFT IS_PRERELEASE < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${IMAGE_TAG_INPUT}" \
+              --jq '[.draft, .prerelease] | @tsv'
+          )
+          if [[ "$IS_DRAFT" != "false" || "$IS_PRERELEASE" != "false" ]]; then
+            echo "Image tag must reference an existing stable GitHub release" >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$ACTUAL_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted API tests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: .rebuild-test-harness
+          sparse-checkout: test_api.sh
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Verify existing release image
+        id: source_image
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          SOURCE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
+            awk '/^Digest:/ {print $2; exit}')
+          if [[ ! "$SOURCE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve the existing release digest" >&2
+            exit 1
+          fi
+
+          if [[ "$UPDATE_LATEST" == "true" ]]; then
+            LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
+              awk '/^Digest:/ {print $2; exit}')
+            if [[ "$LATEST_DIGEST" != "$SOURCE_DIGEST" ]]; then
+              echo "Docker latest and $IMAGE_TAG point to different digests" >&2
+              exit 1
+            fi
+          fi
+
+          echo "digest=$SOURCE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare candidate metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=rebuild-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.validate.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.validate.outputs.source_sha }}
+          flavor: |
+            latest=false
+
+      - name: Build candidate image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: source
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: |
+            linux/amd64
+            linux/arm64/v8
+          pull: true
+          no-cache: true
+          provenance: mode=max
+          sbom: true
+
+      - name: Resolve candidate digest
+        id: image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Build returned an invalid digest: $DIGEST" >&2
+            exit 1
+          fi
+          echo "ref=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Test candidate image on AMD64
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          API_KEY: API_KEY_TEST # pragma: allowlist secret
+          CONTAINER_NAME: typesense-rebuild-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if [[ "$status" -ne 0 ]]; then
+              docker logs "$CONTAINER_NAME" || true
+            fi
+            docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          docker pull --platform linux/amd64 "$IMAGE_REF"
+          docker run --detach \
+            --name "$CONTAINER_NAME" \
+            --publish 127.0.0.1:8108:8108 \
+            --env TYPESENSE_API_KEY="$API_KEY" \
+            "$IMAGE_REF" \
+            --data-dir /tmp \
+            --api-key="$API_KEY"
+
+          STATUS=unknown
+          for _ in {1..60}; do
+            STATUS=$(docker inspect --format '{{.State.Health.Status}}' "$CONTAINER_NAME")
+            if [[ "$STATUS" == "healthy" ]]; then
+              break
+            fi
+            if [[ "$STATUS" == "unhealthy" ]]; then
+              echo "Candidate container is unhealthy" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [[ "$STATUS" != "healthy" ]]; then
+            echo "Candidate container did not become healthy" >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error http://localhost:8108/health
+          bash ./.rebuild-test-harness/test_api.sh "$API_KEY"
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: v0.70.0
+
+      - name: Scan candidate image on AMD64
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          trivy image \
+            --platform linux/amd64 \
+            --image-src remote \
+            --format table \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --timeout 10m \
+            "$IMAGE_REF"
+
+      - name: Scan candidate image on ARM64
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          trivy image \
+            --platform linux/arm64/v8 \
+            --image-src remote \
+            --format table \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --timeout 10m \
+            "$IMAGE_REF"
+
+      - name: Record verification summary
+        if: always()
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          SOURCE_SHA: ${{ steps.validate.outputs.source_sha }}
+        run: |
+          {
+            echo "### Candidate verification"
+            echo
+            echo "- Status: ${{ job.status }}"
+            echo "- Source: \`${SOURCE_SHA:-not validated}\`"
+            echo "- Candidate: \`${IMAGE_REF:-not built}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    name: Promote verified candidate
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: container-release-${{ github.repository }}
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate promotion target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          SOURCE_DIGEST: ${{ needs.verify.outputs.source_digest }}
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+        run: |
+          set -euo pipefail
+          read -r IS_DRAFT IS_PRERELEASE < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${IMAGE_TAG}" \
+              --jq '[.draft, .prerelease] | @tsv'
+          )
+          if [[ "$IS_DRAFT" != "false" || "$IS_PRERELEASE" != "false" ]]; then
+            echo "Image tag must reference an existing stable GitHub release" >&2
+            exit 1
+          fi
+
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          CURRENT_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
+            awk '/^Digest:/ {print $2; exit}')
+          if [[ "$CURRENT_DIGEST" != "$SOURCE_DIGEST" ]]; then
+            echo "$IMAGE_TAG was refreshed during verification; skipping stale promotion" >&2
+            exit 1
+          fi
+
+          if [[ "$UPDATE_LATEST" == "true" ]]; then
+            LATEST_TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+            if [[ "$LATEST_TAG" != "$IMAGE_TAG" ]]; then
+              echo "Refusing to move latest from $LATEST_TAG to $IMAGE_TAG" >&2
+              exit 1
+            fi
+            LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
+              awk '/^Digest:/ {print $2; exit}')
+            if [[ "$LATEST_DIGEST" != "$SOURCE_DIGEST" ]]; then
+              echo "Docker latest changed during verification; skipping stale promotion" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v2.6.2'
+
+      - name: Sign and verify candidate digest
+        env:
+          IMAGE_REF: ${{ needs.verify.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "$IMAGE_REF"
+          cosign verify \
+            --certificate-identity="https://github.com/${GITHUB_WORKFLOW_REF}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "$IMAGE_REF"
+
+      - name: Promote candidate to release tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_REF: ${{ needs.verify.outputs.image_ref }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+        run: |
+          set -euo pipefail
+
+          EXPECTED_DIGEST="${IMAGE_REF##*@}"
+          TAGS=("$IMAGE_TAG" "$VERSION")
+          if [[ "$UPDATE_LATEST" == "true" ]]; then
+            TAGS+=(latest)
+          fi
+
+          declare -A PREVIOUS_DIGESTS=()
+          for TAG in "${TAGS[@]}"; do
+            TARGET="${REGISTRY}/${IMAGE_NAME}:${TAG}"
+            if INSPECTION=$(docker buildx imagetools inspect "$TARGET" 2>&1); then
+              PREVIOUS=$(awk '/^Digest:/ {print $2; exit}' <<< "$INSPECTION")
+              if [[ ! "$PREVIOUS" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                echo "Could not determine the previous digest for $TARGET" >&2
+                exit 1
+              fi
+            elif grep -Eiq 'manifest unknown|not found' <<< "$INSPECTION"; then
+              PREVIOUS=missing
+            else
+              echo "Could not inspect $TARGET before promotion:" >&2
+              echo "$INSPECTION" >&2
+              exit 1
+            fi
+
+            PREVIOUS_DIGESTS["$TAG"]="$PREVIOUS"
+            echo "Previous digest for $TARGET: $PREVIOUS"
+            if [[ "$PREVIOUS" == "missing" ]]; then
+              echo "Recovery for a newly created tag: remove $TARGET in GHCR package settings"
+            else
+              echo "Rollback command: docker buildx imagetools create --tag $TARGET ${REGISTRY}/${IMAGE_NAME}@$PREVIOUS"
+            fi
+          done
+
+          promote_tag() {
+            local tag=$1
+            local target="${REGISTRY}/${IMAGE_NAME}:${tag}"
+            local previous="${PREVIOUS_DIGESTS[$tag]}"
+            local inspection
+            local actual
+
+            docker buildx imagetools create --tag "$target" "$IMAGE_REF"
+            inspection=$(docker buildx imagetools inspect "$target")
+            actual=$(awk '/^Digest:/ {print $2; exit}' <<< "$inspection")
+            if [[ "$actual" != "$EXPECTED_DIGEST" ]]; then
+              echo "Tag $target points to $actual instead of $EXPECTED_DIGEST" >&2
+              exit 1
+            fi
+
+            echo "- \`$target\` (previously \`$previous\`)" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          {
+            echo "### Rebuild promotion"
+            echo
+            echo "- Candidate: \`$IMAGE_REF\`"
+            echo "- Published tags:"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          promote_tag "$IMAGE_TAG"
+          promote_tag "$VERSION"
+
+          if [[ "$UPDATE_LATEST" == "true" ]]; then
+            LATEST_TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+            if [[ "$LATEST_TAG" != "$IMAGE_TAG" ]]; then
+              echo "Latest release changed during promotion; leaving Docker latest unchanged" >&2
+              exit 1
+            fi
+            promote_tag latest
+          fi
+
+      - name: Record promotion summary
+        if: always()
+        env:
+          IMAGE_REF: ${{ needs.verify.outputs.image_ref }}
+        run: |
+          {
+            echo
+            echo "- Promotion status: ${{ job.status }}"
+            echo "- Signed digest: \`$IMAGE_REF\`"
+          } >> "$GITHUB_STEP_SUMMARY"

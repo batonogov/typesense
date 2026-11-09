@@ -244,9 +244,64 @@ cosign verify ghcr.io/batonogov/typesense:v29.0 \
 
 ### Vulnerability Scanning
 
-- Weekly Trivy scans
-- Results in Security tab
-- Fail on HIGH severity issues
+- Daily Trivy scans of the published `latest` image on AMD64 and ARM64.
+- SARIF results are uploaded to the Security tab.
+- Fixable HIGH or CRITICAL findings automatically start Rebuild.
+
+### Security Rebuilds
+
+**Security Scan** automatically starts **Rebuild** with the current `main` SHA
+and latest stable release tag. Rebuild refreshes the existing image without
+moving its Git tag or recreating the GitHub release. No manual approval is
+required after the candidate passes all checks.
+
+Before the first run, create a `production` environment in repository settings
+and add a deployment branch policy restricted to `main`. Required reviewers are
+not needed for the automatic flow. Rebuild verifies this policy before building
+anything, so it cannot silently create and use an unrestricted environment.
+
+To start a rebuild manually, get the current reviewed source SHA and run:
+
+```bash
+SOURCE_SHA=$(gh api repos/batonogov/typesense/commits/main --jq .sha)
+gh workflow run rebuild.yaml \
+  -f source_sha="$SOURCE_SHA" \
+  -f image_tag=v30.2 \
+  -f update_latest=true
+```
+
+The workflow:
+
+- Requires a full commit SHA from `main` history, an existing stable GitHub
+  release, and an existing GHCR release tag.
+- Checks that the image tag matches the Typesense version in `Dockerfile`.
+- Builds a multi-architecture candidate without Docker cache and with SBOM and
+  provenance attestations.
+- Runs health and validated API tests on AMD64 and scans both AMD64 and ARM64
+  by digest. ARM64 runtime behavior is not exercised on the AMD64 runner.
+- Uses the test harness from the workflow revision rather than the selected
+  historical source.
+- Signs and verifies the candidate digest in the protected promotion job.
+- Promotes the same digest to `vX.Y` and `X.Y`, then optionally to `latest`.
+  Every resulting tag digest is checked.
+- Serializes promotion with the normal Publish workflow and rechecks the latest
+  GitHub release immediately before moving Docker `latest`.
+- Rejects stale candidates if another rebuild or publisher refreshes the source
+  release tags while verification is running.
+- Captures every target state before the first mutation and records previous
+  tag digests and rollback commands in the promotion log. Operational inspection
+  errors abort promotion instead of being treated as missing tags.
+
+Trivy fails the rebuild on fixable HIGH or CRITICAL vulnerabilities in either
+architecture. Validation, test, scan, and signature failures prevent release
+tag updates. Version tags are promoted before `latest`, so a late failure can
+leave version tags updated without moving `latest`; use the logged previous
+digests for recovery if needed. If a tag did not exist before promotion, remove
+the newly created tag through GHCR package settings during recovery.
+
+Each run leaves a `rebuild-candidate-<run_id>-<run_attempt>` tag for
+diagnostics. These tags are not supported deployment targets and should be
+cleaned up periodically.
 
 ## Configuration
 

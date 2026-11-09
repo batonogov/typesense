@@ -2,28 +2,133 @@ name: Security Scan
 
 on:
   schedule:
-    - cron: '0 0 * * 0'  # u0417u0430u043fu0443u0441u043a u043au0430u0436u0434u043eu0435 u0432u043eu0441u043au0440u0435u0441u0435u043du044cu0435 u0432 00:00 UTC
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
-  trivy-scan:
+  scan-published-latest:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: read
+      packages: read
+      security-events: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-
-      - name: Build image
-        run: docker build -t typesense:local .
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # master
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
         with:
-          image-ref: 'typesense:local'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
+          version: v0.70.0
 
-      - name: Upload Trivy scan results to GitHub Security tab
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Resolve latest release context
+        id: context
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          IMAGE_TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          SOURCE_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY}"
+
+          LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
+            awk '/^Digest:/ {print $2; exit}')
+          RELEASE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
+            awk '/^Digest:/ {print $2; exit}')
+          if [[ -z "$LATEST_DIGEST" || "$LATEST_DIGEST" != "$RELEASE_DIGEST" ]]; then
+            echo "Docker latest and $IMAGE_TAG point to different digests" >&2
+            exit 1
+          fi
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "image_ref=$IMAGE@$LATEST_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Scan published latest image
+        id: scan
+        env:
+          IMAGE_REF: ${{ steps.context.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          echo "rebuild=false" >> "$GITHUB_OUTPUT"
+
+          scan_platform() {
+            local platform=$1
+            local output=$2
+            local findings
+
+            trivy image \
+              --image-src remote \
+              --platform "$platform" \
+              --format sarif \
+              --output "$output" \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --timeout 10m \
+              "$IMAGE_REF"
+
+            findings=$(jq '[.runs[]?.results[]?] | length' "$output")
+            if [[ "$findings" -gt 0 ]]; then
+              echo "rebuild=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          scan_platform linux/amd64 trivy-amd64.sarif
+          scan_platform linux/arm64/v8 trivy-arm64.sarif
+
+      - name: Upload AMD64 scan results
+        if: always() && hashFiles('trivy-amd64.sarif') != ''
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v3
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: trivy-amd64.sarif
+          category: security-latest-amd64
+
+      - name: Upload ARM64 scan results
+        if: always() && hashFiles('trivy-arm64.sarif') != ''
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v3
+        with:
+          sarif_file: trivy-arm64.sarif
+          category: security-latest-arm64
+
+      - name: Start automatic security rebuild
+        if: always() && steps.scan.outcome == 'success' && steps.scan.outputs.rebuild == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ steps.context.outputs.image_tag }}
+          IMAGE_REF: ${{ steps.context.outputs.image_ref }}
+          SOURCE_SHA: ${{ steps.context.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY}"
+          EXPECTED_DIGEST="${IMAGE_REF##*@}"
+
+          LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
+            awk '/^Digest:/ {print $2; exit}')
+          RELEASE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
+            awk '/^Digest:/ {print $2; exit}')
+          if [[ "$LATEST_DIGEST" != "$EXPECTED_DIGEST" || "$RELEASE_DIGEST" != "$EXPECTED_DIGEST" ]]; then
+            echo "Release image changed during scanning; skipping stale rebuild" >&2
+            exit 1
+          fi
+
+          gh workflow run rebuild.yaml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f source_sha="$SOURCE_SHA" \
+            -f image_tag="$IMAGE_TAG" \
+            -f update_latest=true
+
+      - name: Record scan summary
+        if: always()
+        run: |
+          {
+            echo "### Published image security scan"
+            echo
+            echo "- Status: ${{ job.status }}"
+            echo "- Image: \`${{ steps.context.outputs.image_ref || 'not resolved' }}\`"
+            echo "- Rebuild requested: \`${{ steps.scan.outputs.rebuild || 'false' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

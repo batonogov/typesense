@@ -2,9 +2,9 @@
 
 ## Overview
 
-This project uses an **optimized event-driven CI/CD architecture** with 5 core
-workflows and automated dependency management for Typesense Docker image
-releases.
+This project uses an **optimized event-driven CI/CD architecture** with 5
+automated core workflows, a verified security Rebuild workflow, and automated
+dependency management for Typesense Docker image releases.
 
 ## Architecture Diagram
 
@@ -42,7 +42,7 @@ releases.
             ┌───────▼──────┐ ┌────▼─────┐ ┌────▼──────┐
             │ publish.yaml │ │tests.yaml│ │security-  │
             │              │ │          │ │scan.yaml  │
-            │ Docker Build │ │API Tests │ │Weekly     │
+            │ Docker Build │ │API Tests │ │Daily     │
             └──────────────┘ └──────────┘ │Trivy Scan │
                                           └───────────┘
 ```
@@ -104,6 +104,8 @@ releases.
   - Publish to GitHub Container Registry
   - Sign images with Cosign for security
   - Cache layers for performance
+  - Prevent older stable releases from moving `latest` backward
+  - Serialize release publishing without displacing queued releases
 - **Output**: `ghcr.io/repo:version` images with cosign signatures
 
 #### 4. **`tests.yaml`** - Quality Assurance
@@ -119,13 +121,13 @@ releases.
 
 #### 5. **`security-scan.yaml`** - Security Monitoring
 
-- **Role**: Security vulnerability scanning
-- **Triggers**: Weekly schedule (Sundays)
+- **Role**: Published-image scanning and automatic security rebuilds
+- **Triggers**: Daily schedule and manual dispatch
 - **Responsibilities**:
-  - Trivy vulnerability scanning
-  - SARIF report generation
-  - Security advisory management
-- **Output**: SARIF results to GitHub Security tab
+  - Scan published `latest` on AMD64 and ARM64 with Trivy
+  - Generate SARIF reports for the GitHub Security tab
+  - Start Rebuild automatically for fixable HIGH or CRITICAL findings
+- **Output**: SARIF results and, when needed, a verified image rebuild
 
 ## Complete Automation Flow
 
@@ -224,7 +226,7 @@ New tag → publish.yaml → Multi-arch build → ghcr.io images → Cosign sign
 ### 5. Quality Assurance (Continuous)
 
 - **Tests**: API functionality and performance
-- **Scans**: Security vulnerabilities weekly
+- **Scans**: Security vulnerabilities daily
 - **Validates**: Image functionality post-build
 
 ## Version Detection Logic
@@ -254,6 +256,28 @@ fi
 ```
 
 ## Manual Controls
+
+### Security Rebuild
+
+Rebuild an existing stable image from reviewed `main` history without moving
+its Git tag or recreating the GitHub release:
+
+```bash
+SOURCE_SHA=$(gh api repos/batonogov/typesense/commits/main --jq .sha)
+gh workflow run rebuild.yaml \
+  -f source_sha="$SOURCE_SHA" \
+  -f image_tag=v30.2 \
+  -f update_latest=true
+```
+
+Security Scan starts Rebuild automatically when published `latest` has fixable
+HIGH or CRITICAL findings. Manual dispatch is available for exceptional cases.
+The workflow builds without cache, tests the AMD64 image, scans both
+architectures by digest, signs the candidate, and promotes it without a separate
+approval step. A `production` environment restricts promotion to `main`.
+Updating `latest` requires `image_tag` to match the current latest GitHub
+release and is serialized with normal publishing. See `RELEASE_GUIDE.md` for
+environment setup, validation, and recovery rules.
 
 ### Force Release Creation
 
@@ -301,7 +325,7 @@ Add `[skip ci]` to commit message when updating Dockerfile
 - **Dependabot Checks**: Daily at various times
 - **RC Releases**: As soon as RC versions are available
 - **Stable Releases**: As soon as stable versions are available
-- **Security Scans**: Weekly (Sundays)
+- **Security Scans**: Daily
 
 ## Workflow Optimization Results
 
@@ -356,6 +380,7 @@ maintenance
 ├── release-manager.yaml      # 🎯 Master release controller
 ├── release-publisher.yaml    # 📢 GitHub release creator
 ├── publish.yaml             # 🐳 Docker image builder
+├── rebuild.yaml             # 🔄 Verified security rebuilds
 ├── tests.yaml               # 🧪 Quality assurance
 └── security-scan.yaml       # 🔒 Security monitoring
 
@@ -400,7 +425,7 @@ maintenance
 - **release-publisher**: ~1-2 minutes per release
 - **publish**: ~5-10 minutes per release (multi-arch)
 - **tests**: ~3-5 minutes per change
-- **security-scan**: ~2-3 minutes weekly
+- **security-scan**: ~2-3 minutes daily
 
 ### Storage
 
@@ -465,7 +490,7 @@ cosign verify ghcr.io/batonogov/typesense:v29.0 \
 
 ### Vulnerability Scanning
 
-- Weekly Trivy scans
+- Daily Trivy scans
 - Results in Security tab
 - Fail on HIGH severity issues
 
