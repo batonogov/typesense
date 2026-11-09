@@ -2,9 +2,9 @@
 
 ## Overview
 
-This project uses an **optimized event-driven CI/CD architecture** with 5 core
-workflows and automated dependency management for Typesense Docker image
-releases.
+This project uses an **optimized event-driven CI/CD architecture** with 5
+automated core workflows, a manual security Rebuild workflow, and automated
+dependency management for Typesense Docker image releases.
 
 ## Architecture Diagram
 
@@ -104,6 +104,8 @@ releases.
   - Publish to GitHub Container Registry
   - Sign images with Cosign for security
   - Cache layers for performance
+  - Prevent older stable releases from moving `latest` backward
+  - Serialize release publishing without displacing queued releases
 - **Output**: `ghcr.io/repo:version` images with cosign signatures
 
 #### 4. **`tests.yaml`** - Quality Assurance
@@ -255,6 +257,26 @@ fi
 
 ## Manual Controls
 
+### Security Rebuild
+
+Rebuild an existing stable image from reviewed `main` history without moving
+its Git tag or recreating the GitHub release:
+
+```bash
+SOURCE_SHA=$(gh api repos/batonogov/typesense/commits/main --jq .sha)
+gh workflow run rebuild.yaml \
+  -f source_sha="$SOURCE_SHA" \
+  -f image_tag=v30.2 \
+  -f update_latest=true
+```
+
+The workflow builds without cache, tests the AMD64 image, scans both
+architectures by digest, and signs the candidate. A protected `production`
+environment controls the separate promotion job. Updating `latest` requires
+`image_tag` to match the current latest GitHub release and is serialized with
+normal publishing. See `RELEASE_GUIDE.md` for environment setup, validation,
+and recovery rules.
+
 ### Force Release Creation
 
 ```bash
@@ -356,6 +378,7 @@ maintenance
 ├── release-manager.yaml      # 🎯 Master release controller
 ├── release-publisher.yaml    # 📢 GitHub release creator
 ├── publish.yaml             # 🐳 Docker image builder
+├── rebuild.yaml             # 🔄 Verified security rebuilds
 ├── tests.yaml               # 🧪 Quality assurance
 └── security-scan.yaml       # 🔒 Security monitoring
 

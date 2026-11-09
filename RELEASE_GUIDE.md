@@ -248,6 +248,57 @@ cosign verify ghcr.io/batonogov/typesense:v29.0 \
 - Results in Security tab
 - Fail on HIGH severity issues
 
+### Security Rebuilds
+
+Use the manual **Rebuild** workflow to refresh an existing stable image without
+moving its Git tag or recreating the GitHub release.
+
+Before the first run, create a `production` environment in repository settings
+with required reviewers and restrict deployments to `main`. The workflow checks
+that required reviewers are configured before building anything. The environment
+approval covers the separate promotion job; candidate verification runs first.
+
+Get the current reviewed source SHA and start the workflow:
+
+```bash
+SOURCE_SHA=$(gh api repos/batonogov/typesense/commits/main --jq .sha)
+gh workflow run rebuild.yaml \
+  -f source_sha="$SOURCE_SHA" \
+  -f image_tag=v30.2 \
+  -f update_latest=true
+```
+
+The workflow:
+
+- Requires a full commit SHA from `main` history, an existing stable GitHub
+  release, and an existing GHCR release tag.
+- Checks that the image tag matches the Typesense version in `Dockerfile`.
+- Builds a multi-architecture candidate without Docker cache and with SBOM and
+  provenance attestations.
+- Runs health and validated API tests on AMD64 and scans both AMD64 and ARM64
+  by digest. ARM64 runtime behavior is not exercised on the AMD64 runner.
+- Uses the test harness from the workflow revision rather than the selected
+  historical source.
+- Signs and verifies the candidate digest in the protected promotion job.
+- Promotes the same digest to `vX.Y` and `X.Y`, then optionally to `latest`.
+  Every resulting tag digest is checked.
+- Serializes promotion with the normal Publish workflow and rechecks the latest
+  GitHub release immediately before moving Docker `latest`.
+- Captures every target state before the first mutation and records previous
+  tag digests and rollback commands in the promotion log. Operational inspection
+  errors abort promotion instead of being treated as missing tags.
+
+Trivy fails the rebuild on fixable HIGH or CRITICAL vulnerabilities in either
+architecture. Validation, test, scan, and signature failures prevent release
+tag updates. Version tags are promoted before `latest`, so a late failure can
+leave version tags updated without moving `latest`; use the logged previous
+digests for recovery if needed. If a tag did not exist before promotion, remove
+the newly created tag through GHCR package settings during recovery.
+
+Each run leaves a `rebuild-candidate-<run_id>-<run_attempt>` tag for
+diagnostics. These tags are not supported deployment targets and should be
+cleaned up periodically.
+
 ## Configuration
 
 ### Workflow Permissions
