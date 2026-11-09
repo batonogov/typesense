@@ -135,7 +135,7 @@ jobs:
           set -euo pipefail
           IMAGE="${REGISTRY}/${IMAGE_NAME}"
           SOURCE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
-            awk '/^Digest:/ {print $2; exit}')
+            awk '/^Digest:/ {print $2}')
           if [[ ! "$SOURCE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "Could not resolve the existing release digest" >&2
             exit 1
@@ -143,7 +143,7 @@ jobs:
 
           if [[ "$UPDATE_LATEST" == "true" ]]; then
             LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
-              awk '/^Digest:/ {print $2; exit}')
+              awk '/^Digest:/ {print $2}')
             if [[ "$LATEST_DIGEST" != "$SOURCE_DIGEST" ]]; then
               echo "Docker latest and $IMAGE_TAG point to different digests" >&2
               exit 1
@@ -340,7 +340,7 @@ jobs:
 
           IMAGE="${REGISTRY}/${IMAGE_NAME}"
           CURRENT_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
-            awk '/^Digest:/ {print $2; exit}')
+            awk '/^Digest:/ {print $2}')
           if [[ "$CURRENT_DIGEST" != "$SOURCE_DIGEST" ]]; then
             echo "$IMAGE_TAG was refreshed during verification; skipping stale promotion" >&2
             exit 1
@@ -353,7 +353,7 @@ jobs:
               exit 1
             fi
             LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
-              awk '/^Digest:/ {print $2; exit}')
+              awk '/^Digest:/ {print $2}')
             if [[ "$LATEST_DIGEST" != "$SOURCE_DIGEST" ]]; then
               echo "Docker latest changed during verification; skipping stale promotion" >&2
               exit 1
