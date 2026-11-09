@@ -43,9 +43,9 @@ jobs:
           IMAGE="ghcr.io/${GITHUB_REPOSITORY}"
 
           LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
-            awk '/^Digest:/ {print $2; exit}')
+            awk '/^Digest:/ {print $2}')
           RELEASE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
-            awk '/^Digest:/ {print $2; exit}')
+            awk '/^Digest:/ {print $2}')
           if [[ -z "$LATEST_DIGEST" || "$LATEST_DIGEST" != "$RELEASE_DIGEST" ]]; then
             echo "Docker latest and $IMAGE_TAG point to different digests" >&2
             exit 1
@@ -114,9 +114,9 @@ jobs:
           EXPECTED_DIGEST="${IMAGE_REF##*@}"
 
           LATEST_DIGEST=$(docker buildx imagetools inspect "$IMAGE:latest" | \
-            awk '/^Digest:/ {print $2; exit}')
+            awk '/^Digest:/ {print $2}')
           RELEASE_DIGEST=$(docker buildx imagetools inspect "$IMAGE:$IMAGE_TAG" | \
-            awk '/^Digest:/ {print $2; exit}')
+            awk '/^Digest:/ {print $2}')
           if [[ "$LATEST_DIGEST" != "$EXPECTED_DIGEST" || "$RELEASE_DIGEST" != "$EXPECTED_DIGEST" ]]; then
             echo "Release image changed during scanning; skipping stale rebuild" >&2
             exit 1
