@@ -44,10 +44,10 @@ jobs:
         run: |
           set -euo pipefail
           POLICY_COUNT=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/environments/production/deployment_branch_policies" \
+            "repos/${GITHUB_REPOSITORY}/environments/production/deployment-branch-policies" \
             --jq '[.branch_policies[] | select(.name == "main")] | length')
           TOTAL_POLICIES=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/environments/production/deployment_branch_policies" \
+            "repos/${GITHUB_REPOSITORY}/environments/production/deployment-branch-policies" \
             --jq '.branch_policies | length')
           if [[ "$POLICY_COUNT" -ne 1 || "$TOTAL_POLICIES" -ne 1 ]]; then
             echo "The production environment must allow only the main branch" >&2
