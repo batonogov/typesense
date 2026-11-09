@@ -3,6 +3,7 @@ FROM typesense/typesense:30.2
 
 # Install curl
 RUN apt-get update -qq && \
+    apt-get upgrade -qq -y && \
     apt-get install -qq -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
